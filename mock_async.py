@@ -64,7 +64,7 @@ def service_forward():
         msg_queue.put({"file": file_name})
 
         # 控制生产速度
-        time.sleep(interval)
+        time.sleep(max(interval - INTERFERENCE_DELAY * 2, 0))
 
 
 def process_task(item):
