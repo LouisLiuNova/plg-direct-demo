@@ -1,0 +1,47 @@
+version: "3"
+
+services:
+  # --- 业务模拟器 ---
+  mock-app:
+    build: .
+    container_name: mock-app
+    volumes:
+      - ./data:/var/log/app
+    environment:
+      - APP_TPS=10.0 # 每秒产生 20 个文件
+      - APP_LOSS_RATE=0.2 # 20% 的文件会丢失
+      - APP_INTERFERENCE_DELAY=0.01
+      - APP_MIN_LATENCY=100
+      - APP_MAX_LATENCY=800
+
+  # --- 监控组件 ---
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: loki
+    ports: [ "3100:3100" ]
+    command: -config.file=/etc/loki/local-config.yaml
+
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: promtail
+    volumes:
+      - ./promtail-config.yaml:/etc/promtail/config.yaml
+      - ./data:/var/log/app # 读取 mock-app 写入的日志
+
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports: [ "3000:3000" ]
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - loki
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./provisioning:/etc/grafana/provisioning
+volumes:
+  grafana_data:
