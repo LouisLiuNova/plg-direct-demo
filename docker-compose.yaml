@@ -1,36 +1,59 @@
 version: "3"
 
 services:
-  # --- 业务模拟器 ---
-  mock-app:
+  # ==========================================
+  # 节点 1: 转发服务 (Forwarder Node)
+  # ==========================================
+  forwarder-app:
     build: .
-    container_name: mock-app
-    volumes:
-      - ./data:/var/log/app
+    container_name: forwarder-app
     environment:
-      - APP_TPS=10.0 # 每秒产生 20 个文件
-      - APP_LOSS_RATE=0.2 # 20% 的文件会丢失
-      - APP_INTERFERENCE_DELAY=0.01
-      - APP_MIN_LATENCY=100
-      - APP_MAX_LATENCY=800
+      - APP_ROLE=forwarder
+      - APP_TPS=20.0
+    volumes:
+      - logs-forwarder:/var/log/app # 写日志到共享卷
 
-  # --- 监控组件 ---
+  promtail-forwarder:
+    image: grafana/promtail:2.9.0
+    container_name: promtail-forwarder
+    volumes:
+      - ./config/promtail-forwarder.yaml:/etc/promtail/config.yaml
+      - logs-forwarder:/var/log/app # 挂载同一个卷，读取日志
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
+  # ==========================================
+  # 节点 2: 处理服务 (Processor Node)
+  # ==========================================
+  processor-app:
+    build: .
+    container_name: processor-app
+    environment:
+      - APP_ROLE=processor
+      - APP_TPS=16.5
+      - APP_LOSS_RATE=0.2
+    volumes:
+      - logs-processor:/var/log/app # 写日志到共享卷
+
+  promtail-processor:
+    image: grafana/promtail:2.9.0
+    container_name: promtail-processor
+    volumes:
+      - ./config/promtail-processor.yaml:/etc/promtail/config.yaml
+      - logs-processor:/var/log/app # 挂载同一个卷，读取日志
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      - loki
+
+  # ==========================================
+  # 节点 3: 监控中心 (Monitor Node)
+  # ==========================================
   loki:
     image: grafana/loki:2.9.0
     container_name: loki
     ports: [ "3100:3100" ]
     command: -config.file=/etc/loki/local-config.yaml
-
-  promtail:
-    image: grafana/promtail:2.9.0
-    container_name: promtail
-    volumes:
-      - ./promtail-config.yaml:/etc/promtail/config.yaml
-      - ./data:/var/log/app # 读取 mock-app 写入的日志
-
-    command: -config.file=/etc/promtail/config.yaml
-    depends_on:
-      - loki
 
   grafana:
     image: grafana/grafana:latest
@@ -42,6 +65,8 @@ services:
       - loki
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./provisioning:/etc/grafana/provisioning
+
 volumes:
-  grafana_data:
+  logs-forwarder: # 节点1的磁盘
+  logs-processor: # 节点2的磁盘
+  grafana_data: # 监控数据持久化

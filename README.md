@@ -1,200 +1,223 @@
 # plg-direct-demo
-基于 **Promtail + Loki + Grafana (PLG)** 技术栈构建的轻量级数据治理与监控演示平台。
 
-本项目模拟了一个典型的**异步微服务架构**（文件转发 -> 文件处理），演示了如何在**不修改业务代码**的情况下，仅通过采集和分析**非结构化文本日志**，实时监控业务核心指标（丢包率、吞吐量、处理时延）。
+基于 **PLG (Promtail + Loki + Grafana)** 技术栈构建的**分布式微服务**数据治理与监控演示平台。
 
-下图为设置丢包率为0.2，TPS为10的模拟环境中的观测结果。
+![Demostration](.assets/Snipaste_2026-01-16_11-00-02.png)
 
-![演示](.assets/2025-12-29-165241.png)
+## Release Notes
+### V2.0
+本版本在 v1.0 的基础上进行了架构升级，将单机模拟演进为**容器化分布式架构**。模拟了“转发服务”、“处理服务”和“监控中心”分别运行在独立的容器（逻辑节点）中，通过 Sidecar 模式进行日志采集，更贴近真实的生产环境部署形态。
 
-## 架构概览
+> [!NOTE]
+> Powered by Gemini3pro-preview
 
-本项目采用 **"直读文件 (Direct File Read)"** 模式，模拟业务应用将日志写入磁盘，Promtail 实时采集并推送至 Loki，最终由 Grafana 进行聚合计算。
+## 分布式架构概览
+
+本项目利用 Docker Compose 编排了 3 个逻辑节点（共 6 个容器），模拟跨服务器的数据流转与监控。
 
 ```mermaid
-graph LR
-    subgraph "业务模拟层 (Docker)"
-        App[Mock Python App] -->|写入| LogA[转发服务日志]
-        App -->|写入| LogB[处理服务日志]
+graph TB
+    subgraph "Node 1: 转发节点 (Forwarder)"
+        App1[Forwarder App] -->|写日志| Vol1[Volume]
+        Sidecar1[Promtail Agent] -->|读日志| Vol1
     end
 
-    subgraph "可观测性层 (PLG Stack)"
-        LogA & LogB -->|实时采集| Promtail
-        Promtail -->|Push API| Loki
-        Grafana -->|LogQL 查询| Loki
+    subgraph "Node 2: 处理节点 (Processor)"
+        App2[Processor App] -->|写日志| Vol2[Volume]
+        Sidecar2[ Promtail Agent] -->|读日志| Vol2
     end
+
+    subgraph "Node 3: 监控中心 (Monitor)"
+        Loki[Loki Server]
+        Grafana[Grafana UI]
+    end
+
+    %% 数据流向
+    Sidecar1 -->|HTTP Push - Log Stream| Loki
+    Sidecar2 -->|HTTP Push - Log Stream| Loki
+    Grafana -->|LogQL Query| Loki
 ```
-项目包含下面几个模块：
-1. 业务模拟与数据生成模块 (Data Generation)
-这是本项目的“数据源头”，负责模拟真实的业务流转场景。
-    - 双服务架构模拟：模拟了 “缓存转发服务 (Forwarder)” 和 “预处理服务 (Processor)” 的上下游关系。
-    - 非结构化日志输出：按照预设的文本格式，分别向两个独立的磁盘目录输出业务日志，模拟真实生产环境中的日志落地行为。
-    - 高并发无瓶颈设计：采用 Python ThreadPoolExecutor (线程池) 架构实现消费端的并发处理。
-关键特性：确保模拟器本身具有极高的吞吐能力，不存在内部处理瓶颈。配置中的“处理时延”仅由代码逻辑中的 sleep 精确控制，用于模拟业务耗时，而非程序性能不足导致的阻塞。
-    - 全参数动态配置：支持通过环境变量动态调整 TPS (吞吐量)、Loss Rate (丢包率) 以及 Latency Range (随机时延范围)。
-1. 日志采集与存储模块 (Promtail & Loki)
-这是本项目的“数据管道”，构建了轻量级的 PLG 核心底座。
-    - Promtail (采集)：配置为 "直读 (Direct Read)" 模式。它实时监听业务模拟模块输出的日志文件，利用 inotify 机制处理日志轮转 (Log Rotation)，并根据文件路径自动为日志流打上 service 等关键标签 (Labels)。
-    - Loki (存储)：接收来自 Promtail 的日志流。作为轻量级日志引擎，它不建立全文索引，而是对标签进行索引，支持高写入吞吐，并提供强大的 LogQL 查询引擎供上层调用。
-1. 可视化分析模块 (Grafana)负责数据的查询、聚合与展示。
 
-
-> [!IMPORTANT]
-> 本项目的核心监控指标是基于 **“同一时间窗口内”** 转发服务（入口）与处理服务（出口）的成功流量差值计算得出的。
->
-> 在存在 **处理时延 (Latency)** 的场景下， $T_0$ 时刻进入系统的请求，通常会在 $T_0 + \Delta t$ 时刻才被处理完成并记录日志。因此，严格意义上的秒级实时匹配是无法完全精确的（会出现短暂的负值或波动）。
->
-> 考虑到在实际生产环境中，业务数据流通常具有 **宏观平稳性 (Statistically Stable)**，在分钟级（如 `[1m]`）的滑动聚合窗口下，这种时延带来的统计误差会被平滑抵消。因此，该计算模型可以作为一段时间内 **丢包率 (Loss Rate)** 的有效工程估算，足以用于趋势监控和故障告警。
-
-
-### 核心特性
-- **非侵入式监控**：无需 SDK 埋点，直接解析磁盘上的文本日志。
-- **实时指标计算**：利用 LogQL 从日志流中实时计算 **Loss Rate (丢包率)** 和 **Latency (时延)**。
-- **动态场景模拟**：通过环境变量动态调整 TPS、故障率（丢包）和处理延迟，模拟生产环境的各种极端情况。
-- **高并发模拟**：内置线程池模型，支持高吞吐量场景下的精准模拟。
+### 核心组件
+1.  **业务计算层 (Data Plane)**:
+    *   **Forwarder Node**: 运行缓存转发服务，模拟上游数据入口。
+    *   **Processor Node**: 运行预处理服务，模拟下游数据出口（包含并发处理与丢包模拟）。
+    *   *技术点*：两个服务完全解耦，分别运行在不同的容器网络命名空间中。
+2.  **数据采集层 (Collection Plane)**:
+    *   采用 **Sidecar模式**。每个业务容器搭配一个独立的 Promtail 容器。
+    *   模拟了在不同物理机上部署 Agent 的场景，Promtail 负责为日志打上 `host` 和 `service` 标签。
+3.  **监控存储层 (Observability Plane)**:
+    *   **Loki**: 集中接收来自不同节点的日志流。
+    *   **Grafana**: 统一可视化展示。
 
 ---
 
 ## 快速开始
 
-### 前置要求
-*   Docker
-*   Docker Compose
-
-### 1. 启动服务
+### 1. 启动分布式集群
 在项目根目录下执行：
 
 ```bash
-# 构建镜像并启动所有服务
+# 构建镜像并启动所有容器
 docker-compose up -d --build
 ```
 
-### 2. 验证状态
-确保所有容器均处于 `Up` 状态：
+### 2. 检查集群状态
+确保 6 个容器均处于 `Up` 状态：
 
 ```bash
 docker-compose ps
 ```
+*   `forwarder-app` & `promtail-forwarder`
+*   `processor-app` & `promtail-processor`
+*   `loki` & `grafana`
 
-### 3. 访问监控面板
-打开浏览器访问 Grafana：
+### 3. 访问监控大屏
 *   **地址**: `http://localhost:3000`
 *   **账号**: `admin`
 *   **密码**: `admin`
 
----
-
 > [!TIP]
-> 本项目已实现 Grafana 的全自动化配置。Loki 数据源已通过 `provisioning` 目录预置，无需手动添加即可直接使用。同时，Grafana 的用户配置（如 Admin 账号密码）已通过 Docker Volume 实现持久化，重启服务后数据不会丢失。
-
-## 配置说明
-
-可以通过修改 `docker-compose.yaml` 中的环境变量来控制模拟器的行为，无需重启容器即可生效（Docker Compose 会自动重建应用容器）。
-
-| 环境变量                 | 默认值 | 说明                                                            |
-| :----------------------- | :----- | :-------------------------------------------------------------- |
-| `APP_TPS`                | `20.0` | **目标吞吐量**。每秒产生的文件数量。                            |
-| `APP_LOSS_RATE`          | `0.2`  | **丢包率** (0.0 - 1.0)。`0.2` 表示 20% 的文件在处理阶段会丢失。 |
-| `APP_INTERFERENCE_DELAY` | `0.01` | **干扰日志延迟** (秒)。模拟 IO 耗时，控制日志生成的流量。       |
-| `APP_MIN_LATENCY`        | `50`   | **最小处理耗时** (ms)。模拟业务处理的最小时间。                 |
-| `APP_MAX_LATENCY`        | `500`  | **最大处理耗时** (ms)。模拟业务处理的最大时间。                 |
-
-**修改示例：**
-模拟高并发、高故障场景：
-```yaml
-environment:
-  - APP_TPS=100.0
-  - APP_LOSS_RATE=0.5
-```
+> **自动化配置**：Loki 数据源已预置，Grafana 用户数据已持久化。首次启动后无需手动配置数据源。
 
 ---
 
-## 监控指标与 LogQL
+## 动态配置 (Environment Variables)
 
-本项目使用 LogQL 提取以下关键指标。可以在 Grafana 的 Explore 或 Dashboard 中使用这些查询。
+可以通过修改 `docker-compose.yaml` 中的环境变量来控制不同节点的行为。
 
-### 1. 转发服务流入量 (Throughput In)
-统计包含 `Rename trigger hard link` 的日志行数。
+### 转发节点 (Forwarder Node)
+| 变量名     | 默认值      | 说明                                 |
+| :--------- | :---------- | :----------------------------------- |
+| `APP_ROLE` | `forwarder` | **必须**。指定当前容器运行转发逻辑。 |
+| `APP_TPS`  | `20.0`      | 生产数据的速率 (TPS)。               |
 
-```logql
-sum(rate({service="forward_svc"} |= "Rename trigger hard link" [1m]))
-```
+### 处理节点 (Processor Node)
+| 变量名          | 默认值      | 说明                                                  |
+| :-------------- | :---------- | :---------------------------------------------------- |
+| `APP_ROLE`      | `processor` | **必须**。指定当前容器运行处理逻辑。                  |
+| `APP_TPS`       | `20.0`      | 消费/处理数据的基准速率。                             |
+| `APP_LOSS_RATE` | `0.2`       | **丢包率**。模拟 20% 的数据在跨节点传输或处理中丢失。 |
 
-### 2. 处理服务完成量 (Throughput Out)
-统计同时包含 `处理文件` 和 `成功` 的日志行数。
+> [!IMPORTANT]
+> **关于 TPS 配置与实际丢包率的偏差**
+>
+> 在容器化环境中，**转发服务**受限于 IO 开销，其实际产出速率往往略低于配置的 `APP_TPS`（例如配置 20，实测约 16.5）。而**处理服务**因逻辑轻量，能精准达到配置速率。
+>
+> 这会导致 Grafana 计算出的丢包率低于预期（例如配置 20% 丢包，实际显示 4%）。
+> **调优建议**：观察 Grafana 中转发服务的**实际 TPS**（如 16.5），将处理服务的 `APP_TPS` 环境变量**下调至该数值**，即可对齐基准，获得精准的丢包率演示效果。
+> 更多计算见关于模拟数据的偏差说明小节
 
-```logql
-sum(rate({service="process_svc"} |= "处理文件" |= "成功" [1m]))
-```
-
-### 3. 实时丢包数量 (Loss Count)
-计算流入与流出的差值（包含积压和丢失）。
-
-```logql
-sum(rate({service="forward_svc"} |= "Rename trigger hard link" [1m]))
--
-sum(rate({service="process_svc"} |= "处理文件" |= "成功" [1m]))
-```
-
-### 4. 实时丢包率 (Loss Rate %)
-计算丢失比例。**注意：** 在 Grafana Panel 中需将 Unit 设置为 `Percent (0.0-1.0)`。
-
-```logql
-(
-  sum(rate({service="forward_svc"} |= "Rename trigger hard link" [1m]))
-  -
-  sum(rate({service="process_svc"} |= "处理文件" |= "成功" [1m]))
-)
-/
-sum(rate({service="forward_svc"} |= "Rename trigger hard link" [1m]))
-```
-
-### 5. 平均处理耗时 (Average Latency)
-使用正则提取日志中的 `耗时xx毫秒` 字段并计算平均值。
-
-```logql
-avg_over_time(
-  {service="process_svc"} 
-  |= "处理文件" 
-  | regexp "耗时(?P<duration>\\d+)毫秒" 
-  | unwrap duration 
-  [1m]
-)
-```
-
----
 
 ## 项目结构
 
 ```text
 .
-├── docker-compose.yaml      # 容器编排与环境变量配置
-├── promtail-config.yaml     # Promtail 采集规则配置
-├── mock_text_log.py         # 业务模拟核心脚本 (Python)
-├── Dockerfile               # 模拟应用镜像构建文件
-└── logs/                    # [自动生成] 日志挂载目录
-    ├── service-forward/     # 转发服务日志
-    └── service-process/     # 处理服务日志
+├── docker-compose.yaml        # 分布式编排核心文件
+├── mock_async.py           # 业务逻辑脚本 (支持多角色切换)
+├── Dockerfile                 # 应用镜像构建
+├── config/
+│   ├── promtail-forwarder.yaml  # 节点1 (转发) 采集配置
+│   └── promtail-processor.yaml  # 节点2 (处理) 采集配置
+└── logs/                      # (仅用于开发调试，运行时数据在 Docker Volume 中)
 ```
 
 ---
 
-## 常见问题排查 (Troubleshooting)
+## 验证分布式监控
 
-### Q1: Grafana 显示 "No Data"？
-1.  **检查日志文件**：确认 `logs/` 目录下是否有文件生成，且内容不为空。
-2.  **检查时间范围**：Grafana 右上角时间范围请选择 `Last 5 minutes` 或 `Last 15 minutes`。
-3.  **检查权限**：确保 Promtail 容器有权限读取宿主机的 `logs/` 目录（必要时执行 `chmod -R 777 logs/`）。
+如何证明数据确实来自不同的节点？
 
-### Q2: 丢包率显示异常高（接近 100%）？
-*   **原因**：可能是消费端处理能力不足导致积压。
-*   **解决**：本项目已在 `mock_text_log.py` 中引入 `ThreadPoolExecutor` 实现并发处理。重新构建镜像 (`docker-compose up -d --build`)。
-
-### Q3: 修改环境变量后没生效？
-*   Docker Compose 需要重建容器才能应用新的环境变量。执行 `docker-compose up -d`（不需要 `--build`，除非修改了 Python 代码）。
+1.  进入 Grafana 左侧菜单的 **Explore**。
+2.  选择 **Loki** 数据源。
+3.  运行查询：`{job="file_pipeline"}`。
+4.  查看日志的 **Labels (标签)** 字段：
+    *   `host="node_1_forwarder"`：来自转发容器的数据。
+    *   `host="node_2_processor"`：来自处理容器的数据。
+    *   `service`：区分了具体的服务类型。
 
 ---
 
-## TODOs
-- [ ] 增加预处理服务流入指标(标志为`解压文件filePath=...`)
-- [ ] 进一步针对更多的预处理日志类型，增加每一个步骤的统计指标(待议)
+## 核心指标 LogQL
+
+在分布式环境下，Loki 会自动聚合所有来源的日志，查询语句与单机版保持一致。
+
+### 1. 跨节点流量对比
+```logql
+sum(rate({service="forward_svc"} |= "Rename trigger hard link" [1m]))
+# vs
+sum(rate({service="process_svc"} |= "处理文件" |= "成功" [1m]))
+```
+
+### 2. 跨节点丢包率 (Loss Rate)
+```logql
+(
+  sum(rate({service="forward_svc"} |= "Rename" [1m]))
+  -
+  sum(rate({service="process_svc"} |= "成功" [1m]))
+)
+/
+sum(rate({service="forward_svc"} |= "Rename" [1m]))
+```
+
+
+
+## 技术实现细节
+
+### 1. 业务解耦与模拟策略
+在 v2.0 中，转发服务与处理服务运行在完全隔离的容器中，无法通过内存队列通信。
+*   **模拟原理**：采用 **统计学模拟 (Statistical Simulation)**。
+*   **实现**：两个服务独立运行，但共享相同的 `TPS` 配置基准。处理服务通过 `LOSS_RATE` 参数，在数学概率上模拟出相对于转发服务的“数据丢失”效果。这种方式既保证了监控曲线的真实性，又避免了引入 Kafka/Redis 等重型中间件，保持了 Demo 的轻量级。
+
+### 2. Sidecar 采集模式
+本项目演示了 Kubernetes 中常见的 Sidecar 模式：
+*   业务容器将日志写入 `Docker Volume` (模拟本地磁盘)。
+*   Promtail 容器挂载同一个 Volume，实时读取日志。
+*   这种方式实现了**业务与监控的物理分离**，业务容器无需感知 Promtail 的存在。
+
+
+## 故障排查
+
+**Q: Grafana 提示 "Login failed"？**
+*   如果之前运行过旧版本，旧的数据库可能残留了旧密码。
+*   **解决**：执行 `docker exec -it grafana grafana-cli admin reset-admin-password admin` 强制重置密码。
+
+**Q: 只有转发数据，没有处理数据？**
+*   检查 `processor-app` 容器是否启动。
+*   检查 `docker-compose.yaml` 中 `processor-app` 的 `APP_ROLE` 是否设置为 `processor`。
+
+##  关于模拟数据的偏差说明 (Simulation Deviation)
+
+在分布式容器化部署模式下，您可能会观察到 Grafana 显示的 **实际丢包率 (Actual Loss Rate)** 低于 `docker-compose.yaml` 中配置的 `APP_LOSS_RATE`。
+
+### 现象示例
+*   **配置**：`APP_TPS=20.0`, `APP_LOSS_RATE=0.2` (预期 20% 丢包)。
+*   **监控显示**：丢包率仅为 **3% - 5%** 左右。
+
+### 原因分析
+这是由于两个独立容器的**运行基准不匹配**导致的：
+
+1.  **转发服务 (Forwarder)**：
+    *   虽然配置了 `TPS=20`，但由于 Python 脚本执行开销、Docker 容器的文件 IO 写入延迟以及代码中模拟的 `interference_delay`，导致其**实际产出速率**往往低于理论值（实测约 **16.3 TPS**）。
+2.  **处理服务 (Processor)**：
+    *   该服务的循环逻辑主要负责分发任务到线程池，IO 阻塞极少，因此它能非常精准地以 `TPS=20` 的基准运行。
+    *   其输出量计算逻辑为：`基准 TPS (20) * (1 - LossRate 0.2) = 16.0 TPS`。
+
+**结果偏差**：
+监控系统计算的丢包率为：
+$$ \frac{\text{实际输入}(16.3) - \text{模拟输出}(16.0)}{\text{实际输入}(16.3)} \approx \mathbf{1.8\%} $$
+这导致原本预期的 20% 差距被“实际性能损耗”意外填平了。
+
+### 调优建议
+为了获得精准的演示效果，建议**手动对齐**两个服务的基准速率。
+
+**方法**：观察 Grafana 中 `Forwarder` 的实际 TPS 线（例如稳定在 16.5），然后将 `docker-compose.yaml` 中 `processor-app` 的 `APP_TPS` 下调至该数值。
+
+```yaml
+  processor-app:
+    environment:
+      - APP_ROLE=processor
+      - APP_TPS=16.5  # <--- 根据 Forwarder 的实际表现进行微调 (原为 20.0)
+      - APP_LOSS_RATE=0.2
+```
+调整后，处理服务的输出将变为 $16.5 \times 0.8 = 13.2$，计算出的丢包率将回归至 $(16.5 - 13.2) / 16.5 = \mathbf{20\%}$。

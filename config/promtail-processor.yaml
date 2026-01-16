@@ -1,0 +1,13 @@
+server:
+  http_listen_port: 9080
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+scrape_configs:
+  - job_name: process_node
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          job: file_pipeline
+          service: process_svc
+          host: node_2_processor  # 模拟主机名
+          __path__: /var/log/app/process.log
