@@ -198,7 +198,7 @@ sum(rate({service="forward_svc"} |= "Rename" [1m]))
 这是由于两个独立容器的**运行基准不匹配**导致的：
 
 1.  **转发服务 (Forwarder)**：
-    *   虽然配置了 `TPS=20`，但由于 Python 脚本执行开销、Docker 容器的文件 IO 写入延迟以及代码中模拟的 `interference_delay`，导致其**实际产出速率**往往低于理论值（实测约 **16.3 TPS**）。
+    *   虽然配置了 `TPS=20`，但由于 Python 脚本执行开销、Docker 容器的文件 IO 写入延迟~~以及代码中模拟的 `interference_delay`~~，导致其**实际产出速率**往往低于理论值（实测约 **16.3 TPS**）。
 2.  **处理服务 (Processor)**：
     *   该服务的循环逻辑主要负责分发任务到线程池，IO 阻塞极少，因此它能非常精准地以 `TPS=20` 的基准运行。
     *   其输出量计算逻辑为：`基准 TPS (20) * (1 - LossRate 0.2) = 16.0 TPS`。

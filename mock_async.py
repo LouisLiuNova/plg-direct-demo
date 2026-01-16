@@ -13,7 +13,7 @@ try:
     LOSS_RATE = float(os.getenv("APP_LOSS_RATE", "0.1"))
     TPS = float(os.getenv("APP_TPS", "10.0"))
     LOSS_RATE = float(os.getenv("APP_LOSS_RATE", "0.1"))
-    INTERFERENCE_DELAY = float(os.getenv("APP_INTERFERENCE_DELAY", "0.01"))
+    # INTERFERENCE_DELAY = float(os.getenv("APP_INTERFERENCE_DELAY", "0.01"))
     MIN_LATENCY = int(os.getenv("APP_MIN_LATENCY", "50"))
     MAX_LATENCY = int(os.getenv("APP_MAX_LATENCY", "500"))
 except ValueError as e:
