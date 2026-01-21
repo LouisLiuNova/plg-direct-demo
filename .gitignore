@@ -218,3 +218,4 @@ __marimo__/
 # Config Secrets
 config/*.yaml
 !config/*.example.yaml
+!config/*.local.yaml

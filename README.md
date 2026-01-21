@@ -33,8 +33,12 @@
 ---
 
 ## 部署和配置
+> [!IMPORTANT]
+> 部署在物理分离节点上和部署在单机测试环境使用两套不同配置,参考下面的章节注意区分.
 
-### 环境准备和验证
+### 部署在物理分离节点上
+
+#### 环境准备和验证
 
 假设Demo部署在下面的网络拓扑上：
 - 缓存转发节点`193.10.4.101`
@@ -52,9 +56,9 @@
 > [!IMPORTANT]
 > 上述服务均部署在默认端口,启动前需检查`docker-compose.yaml`中对应的端口是否被占用.
 
-### 缓存转发节点
+#### 缓存转发节点
 
-在缓存转发节点上解包并导入镜像
+在缓存转发节点上解包并导入镜像(仅限离线节点)
 ```shell
 tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
 
@@ -74,8 +78,8 @@ docker compose -f docker/docker-compose.forwarder.yaml up -d --build
 # 使用--build如第一次构建、涉及mockapp的更改
 ```
 
-### 预处理节点
-在预处理节点上解包并导入镜像
+#### 预处理节点
+在预处理节点上解包并导入镜像(仅限离线节点)
 ```shell
 tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
 
@@ -94,8 +98,8 @@ docker compose -f docker/docker-compose.processor.yaml up -d --build
 # 使用--build如第一次构建、涉及mockapp的更改
 ```
 
-### 数据监控治理节点
-在数据监控节点上解包并导入镜像
+#### 数据监控治理节点
+在数据监控节点上解包并导入镜像(仅限离线节点)
 ```shell
 tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
 
@@ -115,6 +119,26 @@ docker compose -f docker/docker-compose.monitor.yaml up -d --build
 
 
 在进入Grafana之后，选择dashboard-Import Dashboard，上传`dashboard.json`，并配置数据源为Loki，即可得到预配置的数据大屏。
+
+### 部署在单一节点上
+
+如果部署在单机上作为测试环境,可以参考下面的配置方法.
+
+解包并导入镜像(仅限离线节点)
+
+```shell
+docker load -i python312.tar
+docker load -i promtail.tar
+docker load -i loki.tar
+docker load -i grafana.tar
+```
+
+直接使用预定义的`docker-compose.local.yaml`启动整个服务
+
+```shell
+docker compose -f docker/docker-compose.local.yaml up -d --build 
+```
+即可直接进入grafana进行配置.
 
 ## 动态配置 (Environment Variables)
 

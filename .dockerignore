@@ -1,1 +1,112 @@
-./images
+
+# ================= 版本控制相关（通用） =================
+# Git版本控制目录/配置（核心必排，避免仓库信息进入镜像）
+.git/
+.gitignore
+.gitattributes
+.gitmodules
+
+# SVN（如有使用）
+.svn/
+
+# ================= 开发工具/编辑器配置（通用） =================
+# VS Code
+.vscode/
+.vs/
+
+# JetBrains系列IDE（IDEA/WebStorm等）
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim编辑器临时文件
+*.swp
+*.swo
+
+# ================= 系统/临时文件（通用） =================
+# macOS系统文件
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Linux临时文件
+*.tmp
+*.temp
+*.bak
+*.log
+.pid
+.lock
+
+# Windows系统文件
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ================= 语言/框架专属（按需删减） =================
+# Node.js 专属
+node_modules/       # 本地依赖（镜像内重新安装保证一致性）
+npm-debug.log*      # npm错误日志
+yarn-debug.log*     # yarn错误日志
+dist/               # 构建产物（如需镜像内构建可保留）
+build/
+coverage/           # 测试覆盖率报告
+.eslintcache        # ESLint缓存
+
+# Python 专属
+__pycache__/        # 字节码缓存
+*.py[cod]           # 编译后的py文件
+venv/               # 虚拟环境
+.venv/
+env/
+ENV/
+.pytest_cache/      # pytest缓存
+.coverage           # 覆盖率文件
+*.egg-info/         # egg包信息
+
+# Java 专属
+target/             # Maven/Gradle构建产物
+.gradle/            # Gradle缓存
+build/
+*.jar
+*.war
+
+# Ruby 专属
+vendor/             # Ruby依赖
+.bundle/
+log/
+tmp/
+
+# ================= 敏感/无关文件（通用） =================
+# 环境变量文件（包含密码/密钥等敏感信息，必排）
+.env
+.env.*
+!.env.example       # 保留示例文件（无敏感信息）
+
+# 日志目录
+logs/
+log/
+
+# 缓存/临时目录
+cache/
+tmp/
+temp/
+
+# 构建Docker的冗余文件
+docker-compose*     # 如不需要在镜像内运行compose可排除
+Dockerfile*         # 避免Dockerfile被打包进镜像
+
+# 敏感配置/密钥
+config/secrets/
+*.pem
+*.key
+*.crt
+*.p12
+
+# 备份文件
+*.bak
+*.backup
+*.old
