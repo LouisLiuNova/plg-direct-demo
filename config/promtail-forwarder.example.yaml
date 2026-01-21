@@ -1,0 +1,13 @@
+server:
+  http_listen_port: 9080
+clients:
+  - url: http://193.10.4.31:3100/loki/api/v1/push # 指向 Loki 容器
+scrape_configs:
+  - job_name: forward_node
+    static_configs:
+      - targets: ['localhost']
+        labels:
+          job: file_pipeline
+          service: forward_svc
+          host: node_1_forwarder  # 模拟主机名
+          __path__: /var/log/app/forward.log

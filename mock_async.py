@@ -41,20 +41,28 @@ else:
     logger = setup_logger("process", "/var/log/app/process.log")
 
 # --- 业务逻辑 ---
-
-
 def run_forwarder():
-    """转发服务逻辑"""
+    """转发服务逻辑 - 多线程版本"""
     print(f"启动转发服务: TPS={TPS}")
     interval = 1.0 / TPS if TPS > 0 else 0.1
-    while True:
-        file_name = f"/data/upload/file_{uuid.uuid4().hex[:8]}.dat"
-        # 模拟日志
-        logger.info(f"Read {file_name}")
-        time.sleep(0.01)
-        logger.info(f"Rename trigger hard link {file_name}")
-        time.sleep(interval)
+    
+    # 使用线程池处理转发任务
+    with ThreadPoolExecutor(max_workers=20) as executor:
+        while True:
+            # 控制发送频率
+            time.sleep(interval)
+            # 提交转发任务到线程池
+            executor.submit(forward_task)
 
+def forward_task():
+    """转发任务执行函数"""
+    file_name = f"/data/upload/file_{uuid.uuid4().hex[:8]}.dat"
+    # 模拟日志
+    logger.info(f"Read {file_name}")
+    time.sleep(0.01)
+    logger.info(f"Rename trigger hard link {file_name}")
+    # 模拟转发处理时间
+    time.sleep(0.05)  # 可以根据需要调整
 
 def run_processor():
     """处理服务逻辑"""

@@ -1,0 +1,26 @@
+services:
+  # ==========================================
+  # 节点 1: 转发服务 (Forwarder Node)
+  # ==========================================
+  forwarder-app:
+    build: ..
+    container_name: forwarder-app
+    environment:
+      - APP_ROLE=forwarder
+      - APP_TPS=100
+      - TZ=Asia/Shanghai
+    volumes:
+      - logs-forwarder:/var/log/app # 写日志到共享卷
+
+  promtail-forwarder:
+    image: grafana/promtail:2.9.0
+    container_name: promtail-forwarder
+    volumes:
+      - ../config:/etc/promtail/config
+      - logs-forwarder:/var/log/app # 挂载同一个卷，读取日志
+    command: -config.file=/etc/promtail/config/promtail-forwarder.yaml
+    depends_on:
+      - forwarder-app
+
+volumes:
+  logs-forwarder: # 节点1的磁盘

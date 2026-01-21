@@ -1,0 +1,28 @@
+services:
+  # ==========================================
+  # 节点 2: 处理服务 (Processor Node)
+  # ==========================================
+  processor-app:
+    build: ..
+    container_name: processor-app
+    environment:
+      - APP_ROLE=processor
+      - APP_TPS=100
+      - APP_LOSS_RATE=0.2
+      - TZ=Asia/Shanghai
+    volumes:
+      - logs-processor:/var/log/app # 写日志到共享卷
+
+  promtail-processor:
+    image: grafana/promtail:2.9.0
+    container_name: promtail-processor
+    volumes:
+      - ../config:/etc/promtail/config
+      - logs-processor:/var/log/app # 挂载同一个卷，读取日志
+    command: -config.file=/etc/promtail/config/promtail-processor.yaml
+    depends_on:
+      - processor-app
+
+volumes:
+  logs-processor: # 节点1的磁盘
+
