@@ -2,6 +2,7 @@ server:
   http_listen_port: 9080
 clients:
   - url: http://loki:3100/loki/api/v1/push # 指向 Loki 容器
+    tenant_id: "fake"  # 新增：指定租户ID，解决no org id错误
 scrape_configs:
   - job_name: process_node
     static_configs:
@@ -11,3 +12,23 @@ scrape_configs:
           service: process_svc
           host: node_2_processor  # 模拟主机名
           __path__: /var/log/app/process.log
+    pipeline_stages:
+      # 步骤1：正则匹配需要保留的「处理成功」日志
+      - regex:
+          expression: "处理文件filePath=\\S+成功，耗时\\d+毫秒"
+      # 步骤2：过滤（丢弃所有未匹配的日志）
+      - match:
+          selector: '{__error__!=""}'
+          action: drop
+
+limits_config:
+  # 全局读取速率限制
+  # 限制 Promtail 每秒最多读取多少行日志
+  # 假设你的正常 TPS 是 2000，这里可以设为 3000-4000，允许一定追赶，但不允许无限爆发
+  readline_rate: 4000
+  
+  # 突发大小 (Burst)，允许短时间内超过 rate 的数量
+  readline_burst: 8000
+  
+  # 限制单行日志最大长度 (防止超大日志卡死)
+  max_line_size: 256KB

@@ -14,7 +14,7 @@ services:
       - logs-processor:/var/log/app # 写日志到共享卷
 
   promtail-processor:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.6.0
     container_name: promtail-processor
     volumes:
       - ../config:/etc/promtail/config
@@ -24,5 +24,6 @@ services:
       - processor-app
 
 volumes:
-  logs-processor: # 节点1的磁盘
+  logs-processor:
+    # 节点1的磁盘
 

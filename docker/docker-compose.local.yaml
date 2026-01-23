@@ -12,7 +12,7 @@ services:
       - logs-forwarder:/var/log/app # 写日志到共享卷
 
   promtail-forwarder:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.6.0
     container_name: promtail-forwarder
     volumes:
       - ../config:/etc/promtail/config
@@ -35,7 +35,7 @@ services:
       - logs-processor:/var/log/app # 写日志到共享卷
 
   promtail-processor:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.6.0
     container_name: promtail-processor
     volumes:
       - ../config:/etc/promtail/config
@@ -48,10 +48,15 @@ services:
   # 节点 3: 监控中心 (Monitor Node)
   # ==========================================
   loki:
-    image: grafana/loki:2.9.0
+    image: grafana/loki:3.6.0
+    user: root # Use root to avoid permission issues. See: https://github.com/grafana/loki/issues/5513
     container_name: loki
     ports: [ "3100:3100" ]
-    command: -config.file=/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/loki-config.yaml
+    volumes:
+      # 挂载自定义配置文件到容器默认路径
+      - ../config/loki-config.local.yaml:/etc/loki/loki-config.yaml
+      - loki-data:/loki # 命名卷挂载到/loki
 
   grafana:
     image: grafana/grafana:latest
@@ -71,3 +76,4 @@ volumes:
   logs-forwarder: # 节点1的磁盘
   logs-processor: # 节点2的磁盘
   grafana_data: # 监控数据持久化
+  loki-data: # Loki 数据持久化

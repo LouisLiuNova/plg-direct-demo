@@ -13,7 +13,7 @@ services:
       - logs-forwarder:/var/log/app # 写日志到共享卷
 
   promtail-forwarder:
-    image: grafana/promtail:2.9.0
+    image: grafana/promtail:3.6.0
     container_name: promtail-forwarder
     volumes:
       - ../config:/etc/promtail/config

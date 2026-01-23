@@ -1,0 +1,46 @@
+# 存储配置（3.x 无需单独写 storage_config，已整合到 common.storage）
+# 生产环境替换为 S3/MinIO 示例（取消注释并修改）：
+# common:
+#   storage:
+#     s3:
+#       endpoint: <MinIO/S3 地址>
+#       bucketnames: <桶名>
+#       access_key_id: <AK>
+#       secret_access_key: <SK>
+#       s3forcepathstyle: true
+#       region: <地区>
+auth_enabled: false
+common:
+  path_prefix: /loki  # 匹配 docker 卷挂载的 /loki 目录，避免权限问题
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks  # 改用 /loki（挂载了命名卷，root 权限可写）
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory  # 测试环境单机模式
+schema_config:
+  configs:
+    - from: 2025-01-01
+      store: tsdb  # 3.x 唯一推荐的索引存储方式
+      object_store: filesystem  # 测试环境用本地文件
+      schema: v13  # 3.x 适配的 schema 版本
+      index:
+        prefix: index_
+        period: 24h  # 索引24小时轮转
+
+# 4. 限流配置：控制日志接收规则
+limits_config:
+  #enforce_metric_name: false # removed in Loki 3.x
+  reject_old_samples: true
+  ingestion_rate_strategy: "local" # 使用本地限流策略. Ref:https://cloud.tencent.com/developer/article/1822952
+  reject_old_samples_max_age: 24h  # 拒绝1天前的日志样本
+
+  # 摄入速率 (MB/s) - 这是“水管的粗细”
+  ingestion_rate_mb: 20
+  # 突发大小 (MB) - 这是“缓冲池的大小”
+  # 关键点：将此值设得非常大！
+  # 允许 Loki 在短时间内接收大量数据，只要平均速率不超过 rate 即可
+  ingestion_burst_size_mb: 100  # 甚至可以设为 200MB

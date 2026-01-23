@@ -5,6 +5,8 @@
 ![Demostration](.assets/Snipaste_2026-01-16_11-00-02.png)
 
 ## Release Notes
+### V4.0
+本版本在v3.0的基础上更新框架到3.9.0,通过引入配置增大了流量窗口以应对大历史流量冲击,同时尝试了在采集节点进行过滤和转换(未成功),并在同一个分支中支持单物理节点/多物理节点的部署方式.
 ### V3.0
 本版本在V2.0的基础上支持了物理多节点的部署,并通过为转发节点增加并发支持消除了TPS设置和实际生产的差距.此外还有一系列易于部署的改进.
 ### V2.0
@@ -219,3 +221,41 @@ sum(rate({service="forward_svc"} |= "Rename" [1m]))
 **Q: 只有转发数据，没有处理数据？**
 *   检查 `processor-app` 容器是否启动。
 *   检查 `docker-compose.yaml` 中 `processor-app` 的 `APP_ROLE` 是否设置为 `processor`。
+
+## V4: PLG架构调优
+
+### Promtail端的速率配置
+
+```yaml
+# config/promtail-forwarder.example.yaml
+limits_config:
+  # 全局读取速率限制
+  # 限制 Promtail 每秒最多读取多少行日志
+  # 假设你的正常 TPS 是 2000，这里可以设为 3000-4000，允许一定追赶，但不允许无限爆发
+  readline_rate: 4000
+  
+  # 突发大小 (Burst)，允许短时间内超过 rate 的数量
+  readline_burst: 8000
+  
+  # 限制单行日志最大长度 (防止超大日志卡死)
+  max_line_size: 256KB
+```
+### Loki端的速率配置
+> [!TIP]
+> 分离式部署和统一部署均使用`config/loki-config.local.yaml`
+
+```yaml
+#config/loki-config.local.yaml
+limits_config:
+  #enforce_metric_name: false # removed in Loki 3.x
+  reject_old_samples: true
+  ingestion_rate_strategy: "local" # 使用本地限流策略. Ref:https://cloud.tencent.com/developer/article/1822952
+  reject_old_samples_max_age: 24h  # 拒绝1天前的日志样本
+
+  # 摄入速率 (MB/s) - 这是“水管的粗细”
+  ingestion_rate_mb: 20
+  # 突发大小 (MB) - 这是“缓冲池的大小”
+  # 关键点：将此值设得非常大！
+  # 允许 Loki 在短时间内接收大量数据，只要平均速率不超过 rate 即可
+  ingestion_burst_size_mb: 100  # 甚至可以设为 200MB
+```
