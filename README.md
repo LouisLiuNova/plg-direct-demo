@@ -18,7 +18,52 @@
 
 本项目利用 Docker Compose 编排了 3 个逻辑节点（共 6 个容器），模拟跨服务器的数据流转与监控。
 
-![Structure](./.assets/mermaid-diagram-2026-01-16T07-06-21.png)
+```mermaid
+flowchart LR
+    %% 定义样式类
+    classDef nodeFill fill:#e6e6fa,stroke:#9673a6,stroke-width:2px,color:#000;
+    classDef clusterFill fill:#fcfce4,stroke:#b8b865,stroke-width:2px,color:#333;
+    classDef storage fill:#e6e6fa,stroke:#9673a6,stroke-width:2px,shape:cylinder,color:#000;
+
+    %% Node 3: 监控中心
+    subgraph Node3 [Node 3: 监控中心 Monitor]
+        direction TB
+        Grafana[Grafana UI]:::nodeFill
+        Loki[Loki Server]:::nodeFill
+        
+        Grafana -- "LogQL Query" --> Loki
+    end
+
+    %% Node 2: 处理节点
+    subgraph Node2 [Node 2: 处理节点 Processor]
+        direction TB
+        P_Promtail[Promtail Agent]:::nodeFill
+        P_App[Processor App]:::nodeFill
+        P_Vol[(Volume)]:::storage
+        
+        P_App -- "写日志" --> P_Vol
+        P_Promtail -- "读日志" --> P_Vol
+    end
+
+    %% Node 1: 转发节点
+    subgraph Node1 [Node 1: 转发节点 Forwarder]
+        direction TB
+        F_Promtail[Promtail Agent]:::nodeFill
+        F_App[Forwarder App]:::nodeFill
+        F_Vol[(Volume)]:::storage
+        
+        F_App -- "写日志" --> F_Vol
+        F_Promtail -- "读日志" --> F_Vol
+    end
+
+    %% 跨节点连接 (数据流向)
+    P_Promtail -- "HTTP Push (Log Stream)" --> Loki
+    F_Promtail -- "HTTP Push (Log Stream)" --> Loki
+
+    %% 应用样式到子图
+    class Node1,Node2,Node3 clusterFill;
+
+```
 
 ### 核心组件
 1.  **业务计算层 (Data Plane)**:
@@ -26,8 +71,8 @@
     *   **Processor Node**: 运行预处理服务，模拟下游数据出口（包含并发处理与丢包模拟）。
     *   *技术点*：两个服务完全解耦，分别运行在不同的容器网络命名空间中。
 2.  **数据采集层 (Collection Plane)**:
-    *   采用 **Sidecar模式**。每个业务容器搭配一个独立的 Promtail 容器。
-    *   模拟了在不同物理机上部署 Agent 的场景，Promtail 负责为日志打上 `host` 和 `service` 标签。
+    *   采用 **Sidecar模式**。每个业务容器搭配一个独立的 Alloy 容器。
+    *   模拟了在不同物理机上部署 Agent 的场景，Alloy 负责为日志打上 `host` 和 `service` 标签。
 3.  **监控存储层 (Observability Plane)**:
     *   **Loki**: 集中接收来自不同节点的日志流。
     *   **Grafana**: 统一可视化展示。
@@ -65,13 +110,10 @@
 tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
 
 docker load -i python312.tar
-docker load -i promtail.tar
+docker load -i alloy.tar
 ```
 
-复制`config`中的配置并填写url字段:
-```shell
-cp config/promtail-forwarder.example.yaml config/promtail-forwarder.yaml
-```
+修改`alloy-config.local.alloy`中`local_loki`字段的`url`字段为loki节点的IP
 
 启动集群
 
@@ -86,12 +128,10 @@ docker compose -f docker/docker-compose.forwarder.yaml up -d --build
 tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
 
 docker load -i python312.tar
-docker load -i promtail.tar
+docker load -i alloy.tar # 待上传 或可以自己打包
 ```
-复制`config`中的配置并填写url字段:
-```shell
-cp config/promtail-forwarder.example.yaml config/promtail-forwarder.yaml
-```
+
+修改`alloy-config.local.alloy`中`local_loki`字段的`url`字段为loki节点的IP
 
 启动集群
 
@@ -118,6 +158,7 @@ docker compose -f docker/docker-compose.monitor.yaml up -d --build
 *   **账号**: `admin`
 *   **密码**: `admin`
 
+访问alloy的在线调试GUI:`http://[节点IP]:12345`
 
 
 在进入Grafana之后，选择dashboard-Import Dashboard，上传`dashboard.json`，并配置数据源为Loki，即可得到预配置的数据大屏。
@@ -130,7 +171,7 @@ docker compose -f docker/docker-compose.monitor.yaml up -d --build
 
 ```shell
 docker load -i python312.tar
-docker load -i promtail.tar
+docker load -i alloy.tar
 docker load -i loki.tar
 docker load -i grafana.tar
 ```
@@ -140,7 +181,7 @@ docker load -i grafana.tar
 ```shell
 docker compose -f docker/docker-compose.local.yaml up -d --build 
 ```
-即可直接进入grafana进行配置.
+即可直接进入grafana进行dashboard导入和配置.
 
 ## 动态配置 (Environment Variables)
 
@@ -160,57 +201,21 @@ docker compose -f docker/docker-compose.local.yaml up -d --build
 | `APP_LOSS_RATE` | `0.2`       | **丢包率**。模拟 20% 的数据在跨节点传输或处理中丢失。 |
 
 
-## 验证分布式监控
-
-如何证明数据确实来自不同的节点？
-
-1.  进入 Grafana 左侧菜单的 **Explore**。
-2.  选择 **Loki** 数据源。
-3.  运行查询：`{job="file_pipeline"}`。
-4.  查看日志的 **Labels (标签)** 字段：
-    *   `host="node_1_forwarder"`：来自转发容器的数据。
-    *   `host="node_2_processor"`：来自处理容器的数据。
-    *   `service`：区分了具体的服务类型。
-
----
-
 ## 核心指标 LogQL
 
 在分布式环境下，Loki 会自动聚合所有来源的日志，查询语句与单机版保持一致。
 
-### 1. 跨节点流量对比
+由于已经在采集端过滤了无关噪声日志,只需要进行简单的计数即可得到数据.
+
+跨节点流量对比
 ```logql
-sum(rate({service="forward_svc"} |= "Rename trigger hard link" [1m]))
-# vs
-sum(rate({service="process_svc"} |= "处理文件" |= "成功" [1m]))
+sum(rate({service="forward_svc"} [1m])) 
+sum(rate({service="process_svc"} [1m]))
 ```
-
-### 2. 跨节点丢包率 (Loss Rate)
+跨节点丢包率 (Loss Rate)
 ```logql
-(
-  sum(rate({service="forward_svc"} |= "Rename" [1m]))
-  -
-  sum(rate({service="process_svc"} |= "成功" [1m]))
-)
-/
-sum(rate({service="forward_svc"} |= "Rename" [1m]))
+(sum(rate({service="forward_svc"} [1m]))-sum(rate({service="process_svc"} [1m])))/sum(rate({service="forward_svc"} [1m]))
 ```
-
-
-
-## 技术实现细节
-
-### 1. 业务解耦与模拟策略
-在 v2.0 中，转发服务与处理服务运行在完全隔离的容器中，无法通过内存队列通信。
-*   **模拟原理**：采用 **统计学模拟 (Statistical Simulation)**。
-*   **实现**：两个服务独立运行，但共享相同的 `TPS` 配置基准。处理服务通过 `LOSS_RATE` 参数，在数学概率上模拟出相对于转发服务的“数据丢失”效果。这种方式既保证了监控曲线的真实性，又避免了引入 Kafka/Redis 等重型中间件，保持了 Demo 的轻量级。
-
-### 2. Sidecar 采集模式
-本项目演示了 Kubernetes 中常见的 Sidecar 模式：
-*   业务容器将日志写入 `Docker Volume` (模拟本地磁盘)。
-*   Promtail 容器挂载同一个 Volume，实时读取日志。
-*   这种方式实现了**业务与监控的物理分离**，业务容器无需感知 Promtail 的存在。
-
 
 ## 故障排查
 
@@ -218,9 +223,6 @@ sum(rate({service="forward_svc"} |= "Rename" [1m]))
 *   如果之前运行过旧版本，旧的数据库可能残留了旧密码。
 *   **解决**：执行 `docker exec -it grafana grafana-cli admin reset-admin-password admin` 强制重置密码。
 
-**Q: 只有转发数据，没有处理数据？**
-*   检查 `processor-app` 容器是否启动。
-*   检查 `docker-compose.yaml` 中 `processor-app` 的 `APP_ROLE` 是否设置为 `processor`。
 
 ## V4: PLG架构调优
 
