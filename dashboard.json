@@ -47,7 +47,7 @@
                       "spec": {
                         "direction": "backward",
                         "editorMode": "code",
-                        "expr": "sum(rate({service=\"forward_svc\"} |= \"Rename trigger hard link\" [1m]))",
+                        "expr": "sum(rate({service=\"forward_svc\"} [1m]))",
                         "legendFormat": "缓存转发成功 (In)",
                         "queryType": "range"
                       },
@@ -66,7 +66,7 @@
                       "spec": {
                         "direction": "backward",
                         "editorMode": "code",
-                        "expr": "sum(rate({service=\"process_svc\"} |= \"处理文件\" |= \"成功\" [1m]))",
+                        "expr": "sum(rate({service=\"process_svc\"} [1m]))",
                         "legendFormat": "处理服务成功(Out)",
                         "queryType": "range"
                       },
@@ -181,7 +181,7 @@
                       "spec": {
                         "direction": "backward",
                         "editorMode": "code",
-                        "expr": "(sum(rate({service=\"forward_svc\"} |= \"Rename trigger hard link\" [1m]))-sum(rate({service=\"process_svc\"} |= \"处理文件\" |= \"成功\" [1m])))/sum(rate({service=\"forward_svc\"} |=\"Rename trigger hard link\" [1m]))",
+                        "expr": "(sum(rate({service=\"forward_svc\"} [1m]))-sum(rate({service=\"process_svc\"} [1m])))/sum(rate({service=\"forward_svc\"} [1m]))",
                         "legendFormat": "LossRate",
                         "queryType": "range"
                       },
