@@ -37,7 +37,7 @@ flowchart LR
     %% Node 2: 处理节点
     subgraph Node2 [Node 2: 处理节点 Processor]
         direction TB
-        P_Promtail[Promtail Agent]:::nodeFill
+        P_Promtail[Alloy Agent]:::nodeFill
         P_App[Processor App]:::nodeFill
         P_Vol[(Volume)]:::storage
         
@@ -48,7 +48,7 @@ flowchart LR
     %% Node 1: 转发节点
     subgraph Node1 [Node 1: 转发节点 Forwarder]
         direction TB
-        F_Promtail[Promtail Agent]:::nodeFill
+        F_Promtail[Alloy Agent]:::nodeFill
         F_App[Forwarder App]:::nodeFill
         F_Vol[(Volume)]:::storage
         
