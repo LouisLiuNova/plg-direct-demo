@@ -18,7 +18,7 @@ services:
     container_name: processor-alloy
     volumes:
       # 挂载配置文件
-      - ../config/alloy-processor.alloy:/etc/alloy/config.alloy
+      - ../config/alloy-config.local.alloy:/etc/alloy/config.alloy
       # 挂载日志目录 (与之前 Promtail 一样)
       - logs-processor:/var/log/app:ro
       # 挂载数据目录 (用于记录读取位置 positions)

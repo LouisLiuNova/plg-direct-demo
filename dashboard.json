@@ -2,9 +2,9 @@
   "apiVersion": "dashboard.grafana.app/v2beta1",
   "kind": "Dashboard",
   "metadata": {
-    "name": "adhx52s",
-    "generation": 3,
-    "creationTimestamp": "2026-01-20T03:00:27Z",
+    "name": "adnm565",
+    "generation": 2,
+    "creationTimestamp": "2026-01-23T07:46:54Z",
     "labels": {},
     "annotations": {}
   },
@@ -297,8 +297,8 @@
                 "kind": "ElementReference",
                 "name": "panel-2"
               },
-              "height": 8,
-              "width": 12,
+              "height": 7,
+              "width": 24,
               "x": 0,
               "y": 0
             }
@@ -310,10 +310,10 @@
                 "kind": "ElementReference",
                 "name": "panel-1"
               },
-              "height": 8,
-              "width": 12,
+              "height": 7,
+              "width": 24,
               "x": 0,
-              "y": 8
+              "y": 7
             }
           }
         ]
