@@ -1,0 +1,91 @@
+// config.alloy
+
+// 1. 定义 Loki 输出端 (对应 Promtail 的 clients)
+loki.write "local_loki" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+    tenant_id = "fake"
+  }
+}
+
+// ==========================================
+// 2. 转发节点流水线 (Forwarder Pipeline)
+// ==========================================
+
+// 2.1 读取文件
+loki.source.file "forwarder_logs" {
+  targets = [
+    {__path__ = "/var/log/app/forward.log", service = "forward_svc", job = "file_pipeline"},
+  ]
+  forward_to = [loki.process.forwarder_process.receiver]
+}
+
+// 2.2 处理逻辑 (清洗 + 转换)
+loki.process "forwarder_process" {
+  forward_to = [loki.write.local_loki.receiver]
+
+  // 阶段 A: 暴力过滤 (Pre-filter)
+  // 直接丢弃不包含关键字的行。这比 Promtail 的 Label Guard 更高效，更直观。
+  stage.match {
+    selector = "{service=\"forward_svc\"} !~ \"Rename trigger hard link\""
+    action   = "drop"
+  }
+
+  // 阶段 B: 正则提取 (Extract)
+  // 此时剩下的肯定包含关键字，直接提取文件名
+  stage.regex {
+    expression = "Rename trigger hard link\\s+(?P<filename>\\S+)"
+  }
+
+  // 阶段 C: JSON 模板化 (Template)
+  stage.template {
+    source   = "output_msg"
+    template = "{\"ts\": \"{{ .Entry.Date.Format \"2006-01-02T15:04:05Z07:00\" }}\", \"event\": \"rename\", \"file\": \"{{ .filename }}\"}"
+  }
+
+  // 阶段 D: 输出替换 (Output)
+  stage.output {
+    source = "output_msg"
+  }
+}
+
+// ==========================================
+// 3. 处理节点流水线 (Processor Pipeline)
+// ==========================================
+
+// 3.1 读取文件
+loki.source.file "processor_logs" {
+  targets = [
+    {__path__ = "/var/log/app/process.log", service = "process_svc", job = "file_pipeline"},
+  ]
+  forward_to = [loki.process.processor_process.receiver]
+}
+
+// 3.2 处理逻辑
+loki.process "processor_process" {
+  forward_to = [loki.write.local_loki.receiver]
+
+  // 阶段 A: 暴力过滤
+  // 丢弃不包含 "filePath=" 的行
+  stage.match {
+    selector = "{service=\"process_svc\"} !~ \"filePath=\""
+    action   = "drop"
+  }
+
+  // 阶段 B: 正则提取
+  // 兼容中文逗号、空格等
+  stage.regex {
+    expression = "filePath=(?P<filename>.*?)成功.*耗时(?P<duration>\\d+)"
+  }
+
+  // 阶段 C: JSON 模板化
+  stage.template {
+    source   = "output_msg"
+    template = "{\"ts\": \"{{ .Entry.Date.Format \"2006-01-02T15:04:05Z07:00\" }}\", \"file\": \"{{ .filename }}\", \"dur_ms\": {{ .duration }}}"
+  }
+
+  // 阶段 D: 输出替换
+  stage.output {
+    source = "output_msg"
+  }
+}

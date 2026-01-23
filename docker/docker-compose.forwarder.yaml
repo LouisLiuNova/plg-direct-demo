@@ -12,15 +12,23 @@ services:
     volumes:
       - logs-forwarder:/var/log/app # 写日志到共享卷
 
-  promtail-forwarder:
-    image: grafana/promtail:3.6.0
-    container_name: promtail-forwarder
+  alloy-forwarder:
+    image: grafana/alloy:latest
+    container_name: forwarder-alloy
     volumes:
-      - ../config:/etc/promtail/config
-      - logs-forwarder:/var/log/app # 挂载同一个卷，读取日志
-    command: -config.file=/etc/promtail/config/promtail-forwarder.yaml
+      # 挂载配置文件
+      # WARNING 这里还没有写 local测完再上
+      - ../config/alloy-local.alloy:/etc/alloy/config.alloy
+      # 挂载日志目录 (与之前 Promtail 一样)
+      - logs-forwarder:/var/log/app:ro
+      # 挂载数据目录 (用于记录读取位置 positions)
+      - alloy-data:/var/lib/alloy
+    command: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy /etc/alloy/config.alloy
+    ports:
+      - "12345:12345" # Alloy 的调试 UI 端口
     depends_on:
       - forwarder-app
 
 volumes:
   logs-forwarder: # 节点1的磁盘
+  alloy-data:
