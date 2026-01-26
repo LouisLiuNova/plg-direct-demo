@@ -44,7 +44,7 @@ services:
 
   alloy-processor:
     image: grafana/alloy:latest
-    container_name: provessor-alloy
+    container_name: processor-alloy
     volumes:
       # 挂载配置文件
       - ../config/alloy-config.local.alloy:/etc/alloy/config.alloy
