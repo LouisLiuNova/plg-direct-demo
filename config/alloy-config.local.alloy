@@ -53,12 +53,21 @@ loki.source.file "processor_logs" {
 loki.process "processor_filter" {
   forward_to = [loki.write.local_loki.receiver]
 
-  // --- 唯一的处理步骤：过滤 ---
-  // 逻辑：如果日志内容 不包含 (!~) "filePath="
-  // 动作：直接丢弃
+  // --- 过滤逻辑第一步 ---
+  // 如果日志 *不包含* "处理文件"，则丢弃
   stage.match {
-    selector = "{service=\"process_svc\"} !~ \"filePath=\""
-    action   = "drop"
+      selector = "{service=\"process_svc\"} != \"处理文件\""
+      action   = "drop"
+      drop_counter_reason = "noise_no_keyword"
+  }
+
+  // --- 过滤逻辑第二步 ---
+  // 经过第一步后，剩下的肯定包含"处理文件"。
+  // 现在：如果日志 *不包含* "成功"，则丢弃
+  stage.match {
+      selector = "{service=\"process_svc\"} != \"成功\""
+      action   = "drop"
+      drop_counter_reason = "noise_not_success"
   }
 }
 
