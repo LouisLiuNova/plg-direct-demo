@@ -6,9 +6,11 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from .log import structured_format_forward
-
+from .config import Config
 
 # --- 业务逻辑 ---
+
+
 def run_forwarder():
     """转发服务逻辑 - 多线程版本"""
     print(f"启动转发服务: TPS={TPS}")
@@ -64,20 +66,23 @@ def process_task(status: bool = True):
 if __name__ == "__main__":
     # --- 日志初始化 (根据角色只初始化一个 Logger) ---
     os.makedirs("/var/log/app", exist_ok=True)
+    config = Config()
     logger.remove()
-    if ROLE == "forwarder":
+    if config.role == "forwarder":
         logger.add(
             "/var/log/app/forward.log",
             encoding="utf-8",
             enqueue=True,
             format=structured_format_forward,
         )
-        run_forwarder()
-    else:
+        # TODO: Instanlize Forwarder Service class and run it here
+    elif config.role == "processor":
         logger.add(
             "/var/log/app/process.log",
             encoding="utf-8",
             enqueue=True,
             format="{time:YYYY-MM-DD HH:mm:ss.SSS} [Log-Producer] {level: <5} com.bigdata.tz.monitor.LogMonitor - {message}",
         )
-        run_processor()
+    else:
+        print("[ERROR] 请设置环境变量 APP_ROLE 为 forwarder 或 processor 后重试。")
+        sys.exit(1)
