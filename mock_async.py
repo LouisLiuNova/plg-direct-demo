@@ -125,12 +125,11 @@ def run_processor():
             # 模拟上游流量到达的节奏
             time.sleep(1.0 / TPS)
 
-            # 模拟丢包：决定是否处理这个“虚拟”请求
-            if random.random() >= LOSS_RATE:
-                executor.submit(process_task)
+            # 模拟丢包：决定是否成功处理这个“虚拟”请求
+            executor.submit(process_task, random.random() >= LOSS_RATE)
 
 
-def process_task():
+def process_task(status: bool = True):
     # 模拟生成一个 ID (注意：分布式下无法与 Forwarder 严格对应，仅做统计模拟)
     file_name = f"/data/upload/file_{uuid.uuid4().hex[:8]}.dat"
 
@@ -138,7 +137,9 @@ def process_task():
     duration_ms = random.randint(50, 500)
     time.sleep(duration_ms / 1000.0)
 
-    logger.info(f"处理文件filePath={file_name}成功，耗时{duration_ms}毫秒")
+    logger.info(
+        f"处理文件filePath={file_name}{"成功" if status else "失败"}，耗时{duration_ms}毫秒"
+    )
 
 
 if __name__ == "__main__":
