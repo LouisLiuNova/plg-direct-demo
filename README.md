@@ -187,6 +187,9 @@ docker compose -f docker/docker-compose.local.yaml up -d --build
 
 可以通过修改 `docker-compose.yaml` 中的环境变量来控制不同节点的行为。
 
+> [!TIP]
+> 为保证观测数据不至于发生偏移,在`worker=20`下,不建议TPS超过70.理论最大吞吐量$TPS=\frac{threads\_num}{average\_timecost}=20/0.275\approx 72.7$
+
 ### 转发节点 (Forwarder Node)
 | 变量名     | 默认值      | 说明                                 |
 | :--------- | :---------- | :----------------------------------- |
