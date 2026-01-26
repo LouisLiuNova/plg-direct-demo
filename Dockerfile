@@ -2,5 +2,7 @@
 FROM python:3.12-slim
 WORKDIR /app
 COPY mock_async.py .
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 # -u 参数保证日志不缓存，实时输出
 CMD ["python", "-u", "mock_async.py"]

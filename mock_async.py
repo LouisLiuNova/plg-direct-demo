@@ -1,10 +1,12 @@
 import time
 import random
-import logging
+from loguru import logger
 import uuid
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
+import json
+
 
 try:
     # --- 配置读取 ---
@@ -23,29 +25,44 @@ except ValueError as e:
 os.makedirs("/var/log/app", exist_ok=True)
 
 
-def setup_logger(name, log_file):
-    formatter = logging.Formatter(
-        "%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
-    )
-    handler = logging.FileHandler(log_file)
-    handler.setFormatter(formatter)
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    logger.addHandler(handler)
-    return logger
+# --- 日志模型 ---
+def structured_format_forward(record):
+    # 构造自定义的日志字典（只保留你需要的字段）
+    time_str = record["time"].strftime("%Y-%m-%dT%H:%M:%S%z")
+    time_str = f"{time_str[:-2]}:{time_str[-2:]}"
+    log_data = {
+        "timestamp": time_str,  # 时间戳
+        "level": record["level"].name,  # 日志级别
+        "msg": record["message"],  # 日志消息
+        "caller": "ph",  # 占位符
+        "version": "v1.0.9",  # 版本号
+    }
+    return json.dumps(log_data, ensure_ascii=False) + "\n"
 
 
+logger.remove()
 if ROLE == "forwarder":
-    logger = setup_logger("forward", "/var/log/app/forward.log")
+    logger.add(
+        "/var/log/app/forward.log",
+        serialize=True,
+        encoding="utf-8",
+        format=structured_format_forward,
+    )  # 启用JSON序列化
 else:
-    logger = setup_logger("process", "/var/log/app/process.log")
+    logger.add(
+        "/var/log/app/process.log",
+        serialize=True,
+        encoding="utf-8",
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} [Log-Producer] {level: <5} com.bigdata.tz.monitor.LogMonitor - {message}",
+    )  # 启用JSON序列化
+
 
 # --- 业务逻辑 ---
 def run_forwarder():
     """转发服务逻辑 - 多线程版本"""
     print(f"启动转发服务: TPS={TPS}")
     interval = 1.0 / TPS if TPS > 0 else 0.1
-    
+
     # 使用线程池处理转发任务
     with ThreadPoolExecutor(max_workers=20) as executor:
         while True:
@@ -53,6 +70,7 @@ def run_forwarder():
             time.sleep(interval)
             # 提交转发任务到线程池
             executor.submit(forward_task)
+
 
 def forward_task():
     """转发任务执行函数"""
@@ -63,6 +81,7 @@ def forward_task():
     logger.info(f"Rename trigger hard link {file_name}")
     # 模拟转发处理时间
     time.sleep(0.05)  # 可以根据需要调整
+
 
 def run_processor():
     """处理服务逻辑"""
