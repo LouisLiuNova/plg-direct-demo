@@ -13,11 +13,10 @@ try:
     ROLE = os.getenv("APP_ROLE", "forwarder")  # forwarder 或 processor
     TPS = float(os.getenv("APP_TPS", "10.0"))
     LOSS_RATE = float(os.getenv("APP_LOSS_RATE", "0.1"))
-    TPS = float(os.getenv("APP_TPS", "10.0"))
-    LOSS_RATE = float(os.getenv("APP_LOSS_RATE", "0.1"))
     # INTERFERENCE_DELAY = float(os.getenv("APP_INTERFERENCE_DELAY", "0.01"))
     MIN_LATENCY = int(os.getenv("APP_MIN_LATENCY", "50"))
     MAX_LATENCY = int(os.getenv("APP_MAX_LATENCY", "500"))
+    RAND_SEED = int(os.getenv("APP_RAND_SEED", "42"))
 except ValueError as e:
     print(f"配置错误: {e}")
     sys.exit(1)
@@ -108,6 +107,7 @@ def run_forwarder():
 def forward_task():
     """转发任务执行函数"""
     file_name = f"/data/upload/file_{uuid.uuid4().hex[:8]}.dat"
+    file_name = f"/cacheproxy/proxy/map/tz01/log/20251028225234929405_tz01_0000_log.zip"
     # 模拟日志
     logger.info(f"Read {file_name}")
     time.sleep(0.01)

@@ -8,6 +8,7 @@ services:
     environment:
       - APP_ROLE=forwarder
       - APP_TPS=50.0
+      - APP_RAND_SEED=24
       - TZ=Asia/Shanghai
     volumes:
       - logs-forwarder:/var/log/app # 写日志到共享卷
@@ -38,6 +39,7 @@ services:
       - APP_ROLE=processor
       - APP_TPS=50.0
       - APP_LOSS_RATE=0.2
+      - APP_RAND_SEED=24
       - TZ=Asia/Shanghai
     volumes:
       - logs-processor:/var/log/app # 写日志到共享卷
