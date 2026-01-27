@@ -3,12 +3,13 @@ services:
   # 节点 1: 转发服务 (Forwarder Node)
   # ==========================================
   forwarder-app:
-    build: ..
+    build:
+      context: ./src
+      dockerfile: docker/Dockerfile_forwarder
     container_name: forwarder-app
     environment:
-      - APP_ROLE=forwarder
-      - APP_TPS=50.0
-      - APP_RAND_SEED=24
+      - APP_PROCESSOR_URL=http://processor-app:8000/receive
+      - APP_TPS=20
       - TZ=Asia/Shanghai
     volumes:
       - logs-forwarder:/var/log/app # 写日志到共享卷
@@ -18,7 +19,7 @@ services:
     container_name: forwarder-alloy
     volumes:
       # 挂载配置文件
-      - ../config/alloy-config.local.alloy:/etc/alloy/config.alloy
+      - ./config/alloy-config.local.alloy:/etc/alloy/config.alloy
       # 挂载日志目录 (与之前 Promtail 一样)
       - logs-forwarder:/var/log/app:ro
       # 挂载数据目录 (用于记录读取位置 positions)
@@ -33,13 +34,12 @@ services:
   # 节点 2: 处理服务 (Processor Node)
   # ==========================================
   processor-app:
-    build: ..
+    build:
+      context: ./src
+      dockerfile: docker/Dockerfile_processor
     container_name: processor-app
     environment:
-      - APP_ROLE=processor
-      - APP_TPS=50.0
       - APP_LOSS_RATE=0.2
-      - APP_RAND_SEED=24
       - TZ=Asia/Shanghai
     volumes:
       - logs-processor:/var/log/app # 写日志到共享卷
@@ -49,7 +49,7 @@ services:
     container_name: processor-alloy
     volumes:
       # 挂载配置文件
-      - ../config/alloy-config.local.alloy:/etc/alloy/config.alloy
+      - ./config/alloy-config.local.alloy:/etc/alloy/config.alloy
       # 挂载日志目录 (与之前 Promtail 一样)
       - logs-processor:/var/log/app:ro
       # 挂载数据目录 (用于记录读取位置 positions)
@@ -70,7 +70,7 @@ services:
     command: -config.file=/etc/loki/loki-config.yaml
     volumes:
       # 挂载自定义配置文件到容器默认路径
-      - ../config/loki-config.local.yaml:/etc/loki/loki-config.yaml
+      - ./config/loki-config.local.yaml:/etc/loki/loki-config.yaml
       - loki-data:/loki # 命名卷挂载到/loki
 
   grafana:
@@ -84,8 +84,8 @@ services:
       - loki
     volumes:
       - grafana_data:/var/lib/grafana
-      - ../provisioning/datasources:/etc/grafana/provisioning/datasources
-      - ../dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
+      - ./provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
 
 volumes:
   logs-forwarder: # 节点1的磁盘

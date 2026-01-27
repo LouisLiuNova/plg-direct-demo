@@ -1,11 +1,9 @@
-import random
-from starlette.responses import JSONResponse
-from starlette.requests import Request
-from threading import Lock
+from loguru import logger
 import json
 from datetime import datetime, timezone, timedelta
 
 
+# --- 日志模型 ---
 def structured_format_forward(record):
     try:
         # 安全构造带时区的时间戳
@@ -49,40 +47,15 @@ def structured_format_forward(record):
             "caller": "ph",
             "version": "v1.0.9",
         }
-        record["extra"]["serialized"] = json.dumps(
-            error_data, ensure_ascii=False)
+        record["extra"]["serialized"] = json.dumps(error_data, ensure_ascii=False)
         return "{extra[serialized]}\n"
 
 
-def generate_random_file_id() -> str:
-    """生成8位随机数字ID"""
-    return str(random.randint(0, 99999999)).zfill(8)
+logger.remove()
 
-
-# 全局存储 + 并发锁（避免多请求同时操作同一ID）
-file_id_store = {}
-store_lock = Lock()
-
-# TODO: Move this to `run` method
-
-
-async def create_file(request: Request, logger):
-    """生成ID + 模拟创建文件（逻辑不变）"""
-    file_id = generate_random_file_id()
-    filename = f'data_{file_id}.txt'
-
-    # 模拟文件创建
-    with open(filename, 'w', encoding='utf-8') as f:
-        f.write(f'流水线初始数据 - 文件ID: {file_id}')
-
-    # 加锁存储，避免并发写入冲突
-    with store_lock:
-        file_id_store[file_id] = filename
-
-    logger.info(f'生成文件ID: {file_id}，文件名: {filename}，已存入内存')
-    return JSONResponse({
-        'code': 200,
-        'file_id': file_id,
-        'filename': filename,
-        'msg': '文件创建成功'
-    })
+logger.add(
+    "/var/log/app/forward.log",
+    encoding="utf-8",
+    enqueue=True,
+    format=structured_format_forward,
+)

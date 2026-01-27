@@ -1,0 +1,9 @@
+FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+# Reorgianize the COPY command for clarity and reuse the dependencies layer
+COPY ./services/ . 
+
+# -u 参数保证日志不缓存，实时输出
+CMD ["python", "-u", "main_forwarder.py"]
