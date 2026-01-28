@@ -85,8 +85,38 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
       - ./provisioning/datasources:/etc/grafana/provisioning/datasources
-      - ./dashboard.json:/etc/grafana/provisioning/dashboards/dashboard.json
-
+      - ./dashboards/:/etc/grafana/provisioning/dashboards/
+  watcher:
+    build:
+      context: ./src
+      dockerfile: docker/Dockerfile.watcher
+    container_name: watcher
+    environment:
+      - LOKI_URL=http://loki:3100
+      - TZ=Asia/Shanghai
+      - CHECK_INTERVAL_SECONDS=120 # 每 x sec运行一次审计
+      - WINDOW_OFFSET_SECONDS=120 # 审计窗口向前偏移 x sec
+      - WINDOW_EXTEND_SECONDS=30 # 审计窗口扩展 x sec
+      - REPORT_DIR=/data/reports
+    volumes:
+      - ./reports:/data/reports
+    depends_on:
+      - loki
+      - alloy-forwarder
+      - alloy-processor
+    ports:
+      - "8000:8000"
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      # 将宿主机的配置文件挂载到容器内部
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090" # Prometheus 的 Web UI 端口
+    depends_on:
+      - watcher
+      - grafana
 volumes:
   logs-forwarder: # 节点1的磁盘
   logs-processor: # 节点2的磁盘

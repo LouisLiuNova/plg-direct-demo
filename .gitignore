@@ -219,3 +219,6 @@ __marimo__/
 config/*.yaml
 !config/*.example.yaml
 !config/*.local.yaml
+
+# Reports
+reports

@@ -8,3 +8,10 @@ datasources:
     jsonData:
       maxLines: 1000
     isDefault: true        # 设为默认数据源
+  - name: Prometheus           # 在 Grafana UI 中显示的名称
+    type: prometheus           # 数据源类型
+    access: proxy              # 访问模式，proxy 表示由 Grafana 后端代理请求
+    url: http://prometheus:9090 # 关键：这里填 docker-compose 中的服务名和端口
+    editable: true             # 允许在 UI 中修改（设为 false 则只能通过配置文件修改）
+    jsonData:
+      timeInterval: "15s"      # 默认刷新间隔

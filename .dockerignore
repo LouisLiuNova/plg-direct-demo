@@ -110,3 +110,5 @@ config/secrets/
 *.bak
 *.backup
 *.old
+
+*.keep
