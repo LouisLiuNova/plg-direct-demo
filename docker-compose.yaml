@@ -5,7 +5,7 @@ services:
   forwarder-app:
     build:
       context: ./src
-      dockerfile: docker/Dockerfile_forwarder
+      dockerfile: docker/Dockerfile.forwarder
     container_name: forwarder-app
     environment:
       - APP_PROCESSOR_URL=http://processor-app:8000/receive
@@ -36,7 +36,7 @@ services:
   processor-app:
     build:
       context: ./src
-      dockerfile: docker/Dockerfile_processor
+      dockerfile: docker/Dockerfile.processor
     container_name: processor-app
     environment:
       - APP_LOSS_RATE=0.2
