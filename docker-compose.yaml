@@ -13,10 +13,13 @@ services:
       - TZ=Asia/Shanghai
     volumes:
       - logs-forwarder:/var/log/app # 写日志到共享卷
-
+    depends_on:
+      - processor-app
   alloy-forwarder:
     image: grafana/alloy:latest
     container_name: forwarder-alloy
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       # 挂载配置文件
       - ./config/alloy-config.local.alloy:/etc/alloy/config.alloy
@@ -28,7 +31,7 @@ services:
     ports:
       - "12345:12345" # Alloy 的调试 UI 端口
     depends_on:
-      - loki
+      - forwarder-app
 
   # ==========================================
   # 节点 2: 处理服务 (Processor Node)
@@ -47,6 +50,8 @@ services:
   alloy-processor:
     image: grafana/alloy:latest
     container_name: processor-alloy
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       # 挂载配置文件
       - ./config/alloy-config.local.alloy:/etc/alloy/config.alloy
@@ -58,7 +63,7 @@ services:
     ports:
       - "12346:12345" # Alloy 的调试 UI 端口
     depends_on:
-      - loki
+      - processor-app
   # ==========================================
   # 节点 3: 监控中心 (Monitor Node)
   # ==========================================
@@ -67,6 +72,8 @@ services:
     user: root # Use root to avoid permission issues. See: https://github.com/grafana/loki/issues/5513
     container_name: loki
     ports: [ "3100:3100" ]
+    environment:
+      - TZ=Asia/Shanghai
     command: -config.file=/etc/loki/loki-config.yaml
     volumes:
       # 挂载自定义配置文件到容器默认路径
@@ -94,21 +101,34 @@ services:
     environment:
       - LOKI_URL=http://loki:3100
       - TZ=Asia/Shanghai
-      - CHECK_INTERVAL_SECONDS=120 # 每 x sec运行一次审计
-      - WINDOW_OFFSET_SECONDS=120 # 审计窗口向前偏移 x sec
-      - WINDOW_EXTEND_SECONDS=30 # 审计窗口扩展 x sec
-      - REPORT_DIR=/data/reports
+      - CHECK_INTERVAL_SECONDS=30 # 每 x sec运行一次审计
+      - WINDOW_OFFSET_SECONDS=60 # 审计窗口向前偏移 x sec
+      - WINDOW_EXTEND_SECONDS=10 # 审计窗口扩展 x sec
+      - DB_HOST=mysql # 和MYSQL服务名称一致
+      - DB_PORT=3306
+      - DB_ROOT_PASSWORD=root # 和MYSQL_ROOT_PASSWORD一致
+      - DB_USER=user # 和MYSQL_USER一致
+      - DB_PASSWORD=test123456
+      - DB_NAME=watcher_db
     volumes:
       - ./reports:/data/reports
     depends_on:
-      - loki
-      - alloy-forwarder
-      - alloy-processor
+      loki:
+        condition: service_started
+      alloy-forwarder:
+        condition: service_started
+      alloy-processor:
+        condition: service_started
+      mysql:
+        condition: service_healthy  # 仅等待mysql健康检查通过
     ports:
       - "8000:8000"
+    restart: on-failure
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
+    environment:
+      - TZ=Asia/Shanghai
     volumes:
       # 将宿主机的配置文件挂载到容器内部
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
@@ -117,6 +137,29 @@ services:
     depends_on:
       - watcher
       - grafana
+  # 用于模拟TiDB的mysql服务
+  mysql:
+    image: mysql:9.6.0
+    # 容器名称（自定义，方便识别容器）
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: user # Use normal user for connection
+      MYSQL_PASSWORD: test123456
+      MYSQL_INITDB_ARGS: "--character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci"
+      MYSQL_BIND_ADDRESS: 0.0.0.0
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uuser", "-ptest123456"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 volumes:
   logs-forwarder: # 节点1的磁盘
   logs-processor: # 节点2的磁盘
@@ -124,3 +167,4 @@ volumes:
   loki-data: # Loki 数据持久化
   alloy-data-processor:
   alloy-data-forwarder:
+  mysql_data: # MySQL 数据持久化

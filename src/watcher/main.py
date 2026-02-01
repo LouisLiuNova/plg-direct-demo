@@ -7,6 +7,10 @@ import requests
 from datetime import datetime, timedelta
 from prometheus_client import start_http_server, Gauge
 from pathlib import Path
+from sqlalchemy import create_engine, text, desc
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import sessionmaker
+from dao import Base, WatcherDao
 
 # --- 配置部分 ---
 LOKI_URL = os.getenv("LOKI_URL", "http://loki:3100")
@@ -21,7 +25,6 @@ WINDOW_EXTEND_SECONDS = int(os.getenv("WINDOW_EXTEND_SECONDS", "120"))
 assert (
     WINDOW_EXTEND_SECONDS <= WINDOW_OFFSET_SECONDS
 )  # To sure will not query the future messages
-REPORT_DIR = os.getenv("REPORT_DIR", "/data/reports")
 
 # --- Prometheus Metrics ---
 GAUGE_LOST_FILES = Gauge(
@@ -87,7 +90,13 @@ def extract_filename_and_ts(filepath):
     return basename, None
 
 
-def run_audit():
+def run_audit(dao_handler: WatcherDao):
+    """
+    run_audit 的 Docstring
+
+    :param dao_handler: 数据库操作对象
+    :type dao_handler: WatcherDao
+    """
     now = datetime.now()
     # 定义我们要审计的“文件时间”窗口
     # 比如现在是 10:10，间隔5分钟，偏移5分钟。
@@ -161,39 +170,21 @@ def run_audit():
     GAUGE_LOST_FILES.set(lost_count)
     GAUGE_TOTAL_FORWARD.set(len(forward_files))
     GAUGE_TOTAL_PROCESS.set(len(process_files))
-
-    # --- 5. 生成报告文件 ---
-    if not os.path.exists(REPORT_DIR):
-        os.makedirs(REPORT_DIR)
-
-    timestamp_str = window_start_dt.strftime("%Y%m%d%H%M%S")
-
+    # --- 5. 生成审计报告 ---
     # 只有当有丢失文件时，或者强制生成报告时写入
     report_data = {
         "audit_window_start": window_start_dt.isoformat(),
         "audit_window_end": window_end_dt.isoformat(),
         "forward_count": len(forward_files),
         "process_count": len(process_files),
-        "lost_count": lost_count,
-        "lost_files_path": str(
-            Path(REPORT_DIR) / Path(f"lost_files_{timestamp_str}.txt")
-        ),
+        "lost_count": lost_count
     }
 
-    # 写入 JSON 报告
-    json_path = os.path.join(REPORT_DIR, f"report_{timestamp_str}.json")
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(report_data, f, indent=2, ensure_ascii=False)
-
-    # 如果有丢失，单独写一个列表文件方便核查
-    if lost_count > 0:
-        list_path = os.path.join(REPORT_DIR, f"lost_files_{timestamp_str}.txt")
-        with open(list_path, "w", encoding="utf-8") as f:
-            for item in lost_files:
-                f.write(f"{item}\n")
-        logger.warning(f"Found {lost_count} lost files! List saved to {list_path}")
+    dao_handler.create_report_with_lost_files(
+        report_data=report_data, lost_files_list=list(lost_files)
+    )
     logger.info(
-        f"Audit report: {len(forward_files)} forwarded, {len(process_files)} processed, {lost_count} lost. Report saved to {json_path}"
+        f"Audit report: {len(forward_files)} forwarded, {len(process_files)} processed, {lost_count} lost. Report saved."
     )
 
 
@@ -201,10 +192,79 @@ if __name__ == "__main__":
     # 启动 Prometheus Metrics Server
     start_http_server(8000)
     logger.info("Metrics server started on port 8000")
+    # Create the default db session
+    db_root_password = os.getenv('DB_ROOT_PASSWORD', '')
+    db_user = os.getenv('DB_USER', 'root')
+    db_password = os.getenv('DB_PASSWORD', '')
+    db_host = os.getenv('DB_HOST', '127.0.0.1')
+    db_port = os.getenv('DB_PORT', '3306')
+    db_name = os.getenv('DB_NAME', 'watcher_db')
+    user_pass_part = f"{db_user}:{db_password}" if db_password else db_user
+
+    # 首次连接：使用mysql系统数据库（用于创建目标数据库）
+    DB_URL = f"mysql+pymysql://root:{db_root_password}@{db_host}:{db_port}/test_db?charset=utf8mb4"
+    logger.info(f"Connecting to the base database by {DB_URL} for setup")
+
+    base_engine = create_engine(DB_URL, echo=False)
+    # 创建目标数据库（如果不存在）
+    max_retries = 20  # 最多重试20次
+    retry_interval = 3  # 每次重试间隔3秒
+    retry_count = 0
+
+    # 测试连接，若失败则重试
+    while retry_count < max_retries:
+        try:
+            base_engine = create_engine(DB_URL, echo=False)
+            with base_engine.connect():
+                logger.info("[root] 成功连接到MySQL基础数据库！")
+                break
+        except SQLAlchemyError as e:
+            retry_count += 1
+            logger.warning(
+                f"[root] root user连接MySQL失败（{retry_count}/{max_retries}）：{e}")
+            if retry_count >= max_retries:
+                logger.error("[root] 重试次数耗尽，无法连接MySQL，退出程序")
+                raise
+            time.sleep(retry_interval)
+    # 连接成功，创建目标数据库
+    try:
+        with base_engine.connect() as conn:
+            # 执行创建数据库的原生 SQL（IF NOT EXISTS 避免已存在时报错）
+            # 指定字符集 utf8mb4，避免后续中文乱码
+            create_db_sql = text(
+                f"CREATE DATABASE IF NOT EXISTS {db_name} DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;")
+            conn.execute(create_db_sql)
+            # DDL 操作（创建数据库/表）自动提交，无需手动 commit
+            grant_sql = text(
+                f"GRANT ALL PRIVILEGES ON {db_name}.* TO 'user'@'%' WITH GRANT OPTION;"
+            )
+            conn.execute(grant_sql)
+            conn.commit()  # 提交权限修改
+            logger.info(
+                f"[root] 目标数据库 {db_name} 检测/创建完成（存在则跳过，不存在则创建）")
+    except SQLAlchemyError as e:
+        logger.error(
+            f"[root] 创建数据库失败：{str(e)}")
+    finally:
+        # 关闭基础引擎，释放连接
+        base_engine.dispose()
+
+    # Reconnect to the target database
+    DB_URL = f"mysql+pymysql://{user_pass_part}@{db_host}:{db_port}/{db_name}?charset=utf8mb4"
+    engine = create_engine(DB_URL, echo=True,
+                           pool_size=5,
+                           max_overflow=10)
+    # 若表未创建，先创建表（仅首次执行）
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db_session = Session()
+    dao = WatcherDao(db_session)
+    logger.info("[user] 数据库连接成功，WatcherDao 初始化完成")
 
     # 首次启动立即运行一次，或者先sleep
     logger.info(f"Service started. Interval: {CHECK_INTERVAL_SECONDS}s")
-    logger.info(f"Sleep {CHECK_INTERVAL_SECONDS} secs first to wait for enough datas")
+    logger.info(
+        f"Sleep {CHECK_INTERVAL_SECONDS} secs first to wait for enough datas")
     time.sleep(CHECK_INTERVAL_SECONDS)
     logger.info(
         f"Sleep {WINDOW_EXTEND_SECONDS}*2 secs to wait for enough extend window"
@@ -214,8 +274,9 @@ if __name__ == "__main__":
     while True:
         logger.info(f"Start to run an audit")
         try:
-            run_audit()
+            run_audit(dao)
         except Exception as e:
             logger.error(f"Audit loop failed: {e}")
-        logger.info(f"Audit completed. Sleeping for {CHECK_INTERVAL_SECONDS} seconds.")
+        logger.info(
+            f"Audit completed. Sleeping for {CHECK_INTERVAL_SECONDS} seconds.")
         time.sleep(CHECK_INTERVAL_SECONDS)
