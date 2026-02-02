@@ -1,8 +1,41 @@
+"""
+main_forwarder.py
+
+This module implements an asynchronous load testing tool using a token bucket algorithm
+to control transactions per second (TPS) when sending HTTP requests to a specified target URL.
+
+Classes:
+    TokenBucket: Implements a token bucket algorithm for rate limiting.
+    LoadTester: Conducts load testing by sending HTTP requests at a controlled rate.
+
+Usage:
+    To use this module, set the environment variables APP_PROCESSOR_URL and APP_TPS,
+    then run the script. It will create a LoadTester instance and start sending requests
+    to the specified target URL at the defined TPS.
+
+Dependencies:
+    - asyncio: For asynchronous programming.
+    - httpx: For making HTTP requests.
+    - os: For environment variable access and directory management.
+    - time: For time-related functions.
+    - typing: For type hinting.
+    - forwarder.log: Custom logging utility.
+    - forwarder.utils: Utility functions for generating timestamps and random file IDs.
+    - public.models: Data model for the payload structure.
+
+Note:
+    This module is designed to be run as a standalone script. It will create a directory
+    for logs if it does not exist and will handle exceptions during HTTP requests to ensure
+    that the load testing process is robust.
+
+"""
+
 import asyncio
-import time
-import httpx
-from typing import Optional, Dict, Any
 import os
+import time
+from typing import Dict, Any
+
+import httpx
 from forwarder.log import logger
 from forwarder.utils import generate_timestamp, generate_random_file_id
 from public.models import Payload
@@ -50,6 +83,28 @@ class TokenBucket:
 
 
 class LoadTester:
+    """
+    Load testing utility for sending HTTP requests at a controlled rate.
+    This class implements a load tester that sends HTTP POST requests to a target URL
+    at a specified transactions per second (TPS) rate. It uses token bucket rate limiting
+    to control request throughput and employs a fire-and-forget pattern with asyncio
+    for non-blocking concurrent request handling.
+    Attributes:
+        target_url (str): The target URL endpoint to send requests to.
+        tps (int): Target transactions per second rate for request throughput.
+        limiter (TokenBucket): Rate limiter to control request frequency.
+        client (httpx.AsyncClient): Async HTTP client for sending requests.
+        running (bool): Flag indicating whether the load test is currently running.
+        tasks (set): Set containing references to active async tasks to prevent
+            garbage collection during high concurrency scenarios.
+    Example:
+        >>> tester = LoadTester(target_url="http://localhost:8000/api", tps=100)
+        >>> await tester.start()
+        This implementation uses a fire-and-forget pattern, meaning requests may still
+        be in transit when the main loop exits. The start() method ensures all tasks
+        are properly awaited before closing the client connection.
+    """
+
     def __init__(self, target_url: str, tps: int):
         self.target_url = target_url
         self.tps = tps
@@ -72,7 +127,11 @@ class LoadTester:
         【Payload 准备阶段】
         构建请求数据
         """
-        file_path = f"/cacheproxy/proxy/map/tz01/log/{generate_timestamp()}_tz01_{generate_random_file_id()}_.log"
+        base_path = "/cacheproxy/proxy/map/tz01/log/"
+
+        file_path = (
+            f"{base_path}{generate_timestamp()}_tz01_{generate_random_file_id()}_.log"
+        )
         logger.info(f"Read {file_path}")
         payload = Payload(ts=time.time(), file=file_path)
         return payload
@@ -84,12 +143,12 @@ class LoadTester:
         try:
             # 发起 POST 请求
             # 这里的 await 只是等待网络IO，不会阻塞主循环的发送频率
-            response = await self.client.post(self.target_url, json=payload)
+            await self.client.post(self.target_url, json=payload)
 
             # 这里可以添加简单的日志，或者直接忽略
             # print(f"Status: {response.status_code}")
 
-        except Exception as e:
+        except (httpx.RequestError, httpx.HTTPError, asyncio.TimeoutError) as e:
             # 捕获网络异常，防止单个请求失败导致程序崩溃
             print(f"Request failed: {e}")
         finally:
@@ -98,8 +157,28 @@ class LoadTester:
             pass
 
     async def start(self):
+        """
+        Start the load test and send requests at a controlled rate.
+        This method initiates a continuous loop that sends HTTP requests to the target URL
+        at a specified TPS (transactions per second) rate. It uses a rate limiter to control
+        the request throughput and implements a fire-and-forget pattern with asyncio tasks.
+        The method:
+        - Acquires tokens from the rate limiter to control request rate
+        - Prepares payload data for each request
+        - Creates asynchronous tasks to send requests without blocking the main loop
+        - Tracks all created tasks to prevent garbage collection during high concurrency
+        - Handles keyboard interrupts gracefully
+        - Waits for all pending requests to complete before closing the client connection
+        Raises:
+            KeyboardInterrupt: Caught internally to gracefully stop the load test when
+                              the user presses Ctrl+C.
+        Note:
+            This is a fire-and-forget implementation, meaning requests may still be
+            in transit when the main loop exits. The finally block ensures all tasks
+            are awaited before closing the client connection.
+        """
+
         print(f"Starting load test: Target={self.target_url}, TPS={self.tps}")
-        start_time = time.monotonic()
         request_count = 0
 
         try:
