@@ -1,6 +1,6 @@
 # plg-direct-demo
 
-基于 **PLG (Promtail + Loki + Grafana)** 技术栈构建的**分布式微服务**数据治理与监控演示平台。
+基于 **PLG (Alloy + Loki + Grafana)** 技术栈构建的数据治理与监控演示平台。
 
 ![Demostration](.assets/Snipaste_2026-01-16_11-00-02.png)
 
@@ -27,15 +27,24 @@ flowchart LR
     %% 定义样式类
     classDef nodeFill fill:#e6e6fa,stroke:#9673a6,stroke-width:2px,color:#000;
     classDef clusterFill fill:#fcfce4,stroke:#b8b865,stroke-width:2px,color:#333;
-    classDef storage fill:#e6e6fa,stroke:#9673a6,stroke-width:2px,shape:cylinder,color:#000;
+    classDef storage fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px,shape:cylinder,color:#000;
+    classDef newComponent fill:#d5e8d4,stroke:#82b366,stroke-width:2px,color:#000;
 
-    %% Node 3: 监控中心
+    %% Node 3: 监控中心 (扩充了 Watcher 和 Prometheus)
     subgraph Node3 [Node 3: 监控中心 Monitor]
         direction TB
         Grafana[Grafana UI]:::nodeFill
         Loki[Loki Server]:::nodeFill
+        Prometheus[Prometheus]:::nodeFill
+        Watcher[Watcher Service]:::nodeFill
+        ReportVol[(Report Volume)]:::storage
         
+        %% 监控中心内部流向
         Grafana -- "LogQL Query" --> Loki
+        Grafana -- "PromQL Query" --> Prometheus
+        Prometheus -- "Scrape Metrics :8000" --> Watcher
+        Watcher -- "Query Range API" --> Loki
+        Watcher -- "Write JSON/TXT" --> ReportVol
     end
 
     %% Node 2: 处理节点
@@ -43,7 +52,7 @@ flowchart LR
         direction TB
         P_Promtail[Alloy Agent]:::nodeFill
         P_App[Processor App]:::nodeFill
-        P_Vol[(Volume)]:::storage
+        P_Vol[(Log Volume)]:::storage
         
         P_App -- "写日志" --> P_Vol
         P_Promtail -- "读日志" --> P_Vol
@@ -54,7 +63,7 @@ flowchart LR
         direction TB
         F_Promtail[Alloy Agent]:::nodeFill
         F_App[Forwarder App]:::nodeFill
-        F_Vol[(Volume)]:::storage
+        F_Vol[(Log Volume)]:::storage
         
         F_App -- "写日志" --> F_Vol
         F_Promtail -- "读日志" --> F_Vol
@@ -66,6 +75,7 @@ flowchart LR
 
     %% 应用样式到子图
     class Node1,Node2,Node3 clusterFill;
+
 
 ```
 
@@ -85,102 +95,9 @@ flowchart LR
 ---
 
 ## 部署和配置
->
-> [!IMPORTANT]
-> 部署在物理分离节点上和部署在单机测试环境使用两套不同配置,参考下面的章节注意区分.
-
-### 部署在物理分离节点上
-
-#### 环境准备和验证
-
-假设Demo部署在下面的网络拓扑上：
-
-* 缓存转发节点`193.10.4.101`
-* 预处理节点`193.10.4.105`
-* 数据监测节点`193.10.4.31`
-
-其中缓存转发节点对其余两个节点为单向连通，数据监测节点和预处理节点为双向连通。网络拓扑如下：
-
-![测试环境网络拓扑](.assets/测试环境网络拓扑.png)
-
-在部署之前需要具有下面的配置：
-
-* docker
-* docker-compose
 
 > [!IMPORTANT]
-> 上述服务均部署在默认端口,启动前需检查`docker-compose.yaml`中对应的端口是否被占用.
-
-#### 缓存转发节点
-
-在缓存转发节点上解包并导入镜像(仅限离线节点)
-
-```shell
-tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
-
-docker load -i python312.tar
-docker load -i alloy.tar
-```
-
-修改`alloy-config.local.alloy`中`local_loki`字段的`url`字段为loki节点的IP
-
-启动集群
-
-```bash
-docker compose -f docker/docker-compose.forwarder.yaml up -d --build 
-# 使用--build如第一次构建、涉及mockapp的更改
-```
-
-#### 预处理节点
-
-在预处理节点上解包并导入镜像(仅限离线节点)
-
-```shell
-tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
-
-docker load -i python312.tar
-docker load -i alloy.tar # 待上传 或可以自己打包
-```
-
-修改`alloy-config.local.alloy`中`local_loki`字段的`url`字段为loki节点的IP
-
-启动集群
-
-```bash
-docker compose -f docker/docker-compose.processor.yaml up -d --build 
-# 使用--build如第一次构建、涉及mockapp的更改
-```
-
-#### 数据监控治理节点
-
-在数据监控节点上解包并导入镜像(仅限离线节点)
-
-```shell
-tar -xzvf plg-direct-demo-dis-xg_dis_demo.tar.gz && cd plg-direct-demo-dis-xg_dis_demo/docker/images
-
-docker load -i loki.tar
-docker load -i grafana.tar
-```
-
-启动集群
-
-```shell
-docker compose -f docker/docker-compose.monitor.yaml up -d --build
-```
-
-访问监控大屏：
-
-* **地址**: `http://<ip>:3700`(这里参照`docker/docker-compose.monitor.yaml`中的配置端口)
-* **账号**: `admin`
-* **密码**: `admin`
-
-访问alloy的在线调试GUI:`http://[节点IP]:12345`
-
-在进入Grafana之后，选择dashboard-Import Dashboard，上传`dashboard.json`，并配置数据源为Loki，即可得到预配置的数据大屏。
-
-### 部署在单一节点上
-
-如果部署在单机上作为测试环境,可以参考下面的配置方法.
+> 从V5版本开始,该项目仅支持在单机节点上进行部署和维护,分离节点模式的配置已经移除.
 
 解包并导入镜像(仅限离线节点)
 
@@ -189,37 +106,30 @@ docker load -i python312.tar
 docker load -i alloy.tar
 docker load -i loki.tar
 docker load -i grafana.tar
+docker load -i prometheus.tar
 ```
+### 配置
 
-直接使用预定义的`docker-compose.local.yaml`启动整个服务
+#### Apps
+
+在`docker-compose.yaml`中配置好环境变量.对于Forwarder,配置`APP_TPS`,对于Processor,配置`APP_LOSS_RATE`,其余保持不变.
+
+#### Alloy
+
+在`config/alloy-config.local.alloy`中按照注释进行编辑.
+
+#### Grafana
+> TBD
+
+
+### 部署
+启动整个服务
 
 ```shell
-docker compose -f docker/docker-compose.local.yaml up -d --build 
+docker compose  up -d --build #如果有代码更改,重新进行构建
 ```
 
 即可直接进入grafana进行dashboard导入和配置.
-
-## 动态配置 (Environment Variables)
-
-可以通过修改 `docker-compose.yaml` 中的环境变量来控制不同节点的行为。
-
-> [!TIP]
-> 为保证观测数据不至于发生偏移,在`worker=20`下,不建议TPS超过70.理论最大吞吐量$TPS=\frac{threads\_num}{average\_timecost}=20/0.275\approx 72.7$
-
-### 转发节点 (Forwarder Node)
-
-| 变量名     | 默认值      | 说明                                 |
-| :--------- | :---------- | :----------------------------------- |
-| `APP_ROLE` | `forwarder` | **必须**。指定当前容器运行转发逻辑。 |
-| `APP_TPS`  | `20.0`      | 生产数据的速率 (TPS)。               |
-
-### 处理节点 (Processor Node)
-
-| 变量名          | 默认值      | 说明                                                  |
-| :-------------- | :---------- | :---------------------------------------------------- |
-| `APP_ROLE`      | `processor` | **必须**。指定当前容器运行处理逻辑。                  |
-| `APP_TPS`       | `20.0`      | 消费/处理数据的基准速率。                             |
-| `APP_LOSS_RATE` | `0.2`       | **丢包率**。模拟 20% 的数据在跨节点传输或处理中丢失。 |
 
 ## 核心指标 LogQL
 
