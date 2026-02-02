@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies via uv
       run: |
         # 方式1：如果有 pyproject.toml（推荐，自动安装所有依赖）
-        uv pip install -e .
+        uv pip install -e . --system
         
         # 方式2：无 pyproject.toml 时，手动指定依赖（适配你的导入错误）
         # uv pip install pylint uvicorn fastapi starlette pydantic
