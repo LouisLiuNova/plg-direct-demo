@@ -1,13 +1,22 @@
 # plg-direct-demo
 
-基于 **PLG (Alloy + Loki + Grafana)** 技术栈构建的数据治理与监控演示平台。
+基于 **~~PLG~~ ALG (Alloy + Loki + Grafana)** 技术栈构建的数据治理与监控演示平台。
 
 ![Demostration](.assets/Snipaste_2026-01-16_11-00-02.png)
 
 ## Release Notes
 
-### V4.0
+### V5.0
+本版本有下面的主要更改:
+1. 迁移Promtail(即将EoL)到更新的通用探针Alloy上
+2. 在探针节点上实现了采集端侧的日志清洗和解析
+3. 清理了不再维护的分离节点部署方式的配置文件
+4. 更新了基础日志数据格式,使其更加贴近生产环境
+5. 重构了forwarder和processor,现在两个服务使用HTTP传输生成的一致文件名,而不是各自生成模拟数据.同时解耦的同时具有更好的可扩展性.
+6. 引入了watcher容器,用于定时使用loki查询指定时间段的丢失情况,并生成丢失文件名列表.
+7. 引入了mysql模拟数据库,用于存储watcher生成的报告和文件名列表.构建了基于SQLalchemy的watcher数据模型.
 
+### V4.0
 本版本在v3.0的基础上更新框架到3.9.0,通过引入配置增大了流量窗口以应对大历史流量冲击,同时尝试了在采集节点进行过滤和转换(未成功),并在同一个分支中支持单物理节点/多物理节点的部署方式.
 
 ### V3.0
@@ -20,7 +29,7 @@
 
 ## 分布式架构概览
 
-本项目利用 Docker Compose 编排了 3 个逻辑节点（共 6 个容器），模拟跨服务器的数据流转与监控。
+本项目利用 Docker Compose 编排了 3 个逻辑节点，模拟跨服务器的数据生成,流转与监控。
 
 ```mermaid
 flowchart LR
@@ -37,14 +46,14 @@ flowchart LR
         Loki[Loki Server]:::nodeFill
         Prometheus[Prometheus]:::nodeFill
         Watcher[Watcher Service]:::nodeFill
-        ReportVol[(Report Volume)]:::storage
+        ReportVol[(Database)]:::storage
         
         %% 监控中心内部流向
         Grafana -- "LogQL Query" --> Loki
         Grafana -- "PromQL Query" --> Prometheus
         Prometheus -- "Scrape Metrics :8000" --> Watcher
         Watcher -- "Query Range API" --> Loki
-        Watcher -- "Write JSON/TXT" --> ReportVol
+        Watcher -- "Report/Files list" --> ReportVol
     end
 
     %% Node 2: 处理节点
@@ -84,13 +93,15 @@ flowchart LR
 1. **业务计算层 (Data Plane)**:
     * **Forwarder Node**: 运行缓存转发服务，模拟上游数据入口。
     * **Processor Node**: 运行预处理服务，模拟下游数据出口（包含并发处理与丢包模拟）。
-    * *技术点*：两个服务完全解耦，分别运行在不同的容器网络命名空间中。
+    * 两个服务完全解耦，分别运行在不同的容器网络命名空间中。
 2. **数据采集层 (Collection Plane)**:
     * 采用 **Sidecar模式**。每个业务容器搭配一个独立的 Alloy 容器。
-    * 模拟了在不同物理机上部署 Agent 的场景，Alloy 负责为日志打上 `host` 和 `service` 标签。
+    * 模拟了在不同物理机上部署 Agent 的场景，Alloy 负责进行前置日志清洗过滤,并传送给Loki进行存储和处理。
 3. **监控存储层 (Observability Plane)**:
     * **Loki**: 集中接收来自不同节点的日志流。
     * **Grafana**: 统一可视化展示。
+    * **watcher**: 通过调用Loki查询,得到可配置时间段内丢失文件数目和列表,并生成对账报告和丢失文件列表落库持久化存储
+    * **mysql**: 通用的sql后端,用于存储watcher生成的对账结果
 
 ---
 
@@ -106,21 +117,9 @@ docker load -i python312.tar
 docker load -i alloy.tar
 docker load -i loki.tar
 docker load -i grafana.tar
-docker load -i prometheus.tar
+docker load -i prometheus.
+#...
 ```
-### 配置
-
-#### Apps
-
-在`docker-compose.yaml`中配置好环境变量.对于Forwarder,配置`APP_TPS`,对于Processor,配置`APP_LOSS_RATE`,其余保持不变.
-
-#### Alloy
-
-在`config/alloy-config.local.alloy`中按照注释进行编辑.
-
-#### Grafana
-> TBD
-
 
 ### 部署
 启动整个服务
@@ -130,6 +129,49 @@ docker compose  up -d --build #如果有代码更改,重新进行构建
 ```
 
 即可直接进入grafana进行dashboard导入和配置.
+
+## 部署和配置
+
+以下内容提供快速配置步骤与常用调优建议，适用于本项目的本地开发/测试环境。
+
+### 先决条件
+- 已安装 Docker 与 Docker Compose
+- 在 Linux 环境下，检查宿主卷权限以避免权限问题
+
+### 快速启动
+```bash
+# 构建并后台启动所有服务
+docker compose up -d --build
+
+# 查看服务状态与日志
+docker compose ps
+docker compose logs -f grafana
+```
+在grafana-dashboard中手动导入`dashboards/dashboard.json`
+
+### 关键配置与位置
+- `docker-compose.yaml`（常用环境变量）
+  - Forwarder: `APP_TPS`、`APP_PROCESSOR_URL`
+  - Processor: `APP_LOSS_RATE`
+  - Watcher: `LOKI_URL`、`CHECK_INTERVAL_SECONDS`、`WINDOW_OFFSET_SECONDS`、`DB_*` 连接变量
+- Alloy: 编辑 `./config/alloy-config.local.alloy` 调整 source/process 过滤规则
+- Loki: 编辑 `./config/loki-config.local.yaml` 的 `limits_config`（`ingestion_rate_mb`、`ingestion_burst_size_mb`）以进行流量调优
+- Grafana: ~~数据源与 dashboard 已通过 `./provisioning` 与 `./dashboards` 挂载，修改后重启 Grafana 生效~~仍需手动导入`.json`文件
+- MySQL（TiDB 测试替代）：参见 `docker-compose.yaml` 中的环境变量与 healthcheck
+
+### 调整与验证
+- 压力测试：增大 `APP_TPS` 并相应调整 Loki 的 `ingestion_*` 限流参数以避免被限流
+- 验证端点：
+  - Grafana: http://localhost:3700
+  - Loki: http://localhost:3100
+  - Prometheus: http://localhost:9090
+  - Watcher API: http://localhost:8000
+
+### 常见故障与排查
+- Grafana 登录失败：执行 `docker exec -it grafana grafana-cli admin reset-admin-password admin` 重置管理员密码
+- Watcher 无法访问 Loki：确认 `LOKI_URL` 为 `http://loki:3100`，查看 `docker compose logs watcher` 获取详情
+- MySQL 未就绪：查看 `docker compose logs mysql` 并等待 healthcheck 通过，确认用户/密码一致
+- 卷权限问题：检查宿主机目录权限或在容器内使用 `ls -la` 查看挂载点
 
 ## 核心指标 LogQL
 
@@ -149,13 +191,6 @@ sum(rate({service="process_svc"} [1m]))
 ```logql
 (sum(rate({service="forward_svc"} [1m]))-sum(rate({service="process_svc"} [1m])))/sum(rate({service="forward_svc"} [1m]))
 ```
-
-## 故障排查
-
-**Q: Grafana 提示 "Login failed"？**
-
-* 如果之前运行过旧版本，旧的数据库可能残留了旧密码。
-* **解决**：执行 `docker exec -it grafana grafana-cli admin reset-admin-password admin` 强制重置密码。
 
 ## V4: PLG架构调优
 
@@ -205,40 +240,25 @@ V5版本中使用MySQL兼容的TiDB存储watcher生成的丢失文件报告和�
 erDiagram
     %% 定义 Reports 实体（报告表）
     Reports {
-        UUID id PK "主键，UUID4 格式，自动生成"
-        String(50) audit_window_start NOT NULL "审计窗口开始时间，ISO 格式"
-        String(50) audit_window_end NOT NULL "审计窗口结束时间，ISO 格式"
-        Integer forward_count NOT NULL "转发文件数量"
-        Integer process_count NOT NULL "处理文件数量"
-        Integer lost_count NOT NULL "丢失文件总数"
+        uuid id PK "主键，UUID4 格式，自动生成"
+        datetime audit_window_start NOT NULL "审计窗口开始时间，ISO 8601 格式"
+        datetime audit_window_end NOT NULL "审计窗口结束时间，ISO 8601 格式"
+        integer forward_count NOT NULL "转发文件数量"
+        integer process_count NOT NULL "处理文件数量"
+        integer lost_count NOT NULL "丢失文件总数"
+        datetime created_at NOT NULL "报告创建时间，默认当前时间"
+        datetime updated_at NOT NULL "报告最后更新时间，更新时自动刷新"
     }
 
     %% 定义 LostFiles 实体（丢失文件明细表）
     LostFiles {
-        UUID id PK "主键，UUID4 格式，自动生成"
-        UUID report_id FK "外键，关联 Reports.id，删除报告时级联删除关联记录"
-        String(100) file_name NOT NULL "丢失文件的基础名称"
-        DateTime created_at NOT NULL "记录创建时间，默认当前时间"
-        DateTime updated_at NOT NULL "记录最后更新时间，更新时自动刷新"
+        uuid id PK "主键，UUID4 格式，自动生成"
+        uuid report_id FK "外键，关联 Reports.id，删除报告时级联删除关联记录"
+        varchar file_name NOT NULL "丢失文件的基础名称"
+        datetime created_at NOT NULL "记录创建时间，默认当前时间"
+        datetime updated_at NOT NULL "记录最后更新时间，更新时自动刷新"
     }
 
     %% 定义实体间的关系（1:N 一对多）
-    Reports ||--o{ LostFiles : "包含（一个报告对应多个丢失文件）"
-```
-
-## V5: 测试环境下安装和部署TiDB
-
-> [!NOTE]
-> 该节准备合并到Installation章节中,在V5正式发布后
-
-参考: <https://docs.pingcap.com/tidb/stable/quick-start-with-tidb/>
-
-```shell
-curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
-```
-
-In a new terminal session:
-
-```shell
-tiup playground
+    Reports ||--o{ LostFiles : "包含（1个报告对应多个丢失文件）"
 ```
